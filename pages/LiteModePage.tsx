@@ -173,6 +173,8 @@ const LiteModePage: React.FC = () => {
         video.style.backgroundColor = "#000";
         video.src = videoSrc;
         video.setAttribute('playsinline', '');
+        // Explicitly set MIME type for HLS support in compatible browsers/players
+        video.setAttribute('type', 'application/x-mpegURL');
         
         container.appendChild(video);
         

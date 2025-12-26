@@ -1,3 +1,4 @@
+
 import type { Video, VideoDetails, Channel, ChannelDetails, ApiPlaylist, Comment, PlaylistDetails, SearchResults, HomeVideo, HomePlaylist, ChannelHomeData, CommunityPost, CommentResponse, StreamData } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
@@ -7,8 +8,29 @@ dayjs.extend(relativeTime);
 dayjs.locale('ja');
 
 // --- CONSTANTS ---
-// Explicitly set the external API base URL
-export const API_BASE_URL = 'https://xeroxyt-nt-apiv1.onrender.com';
+const API_MIRRORS = [
+    'https://xeroxyt-nt-apiv1-0ydt.onrender.com',
+    'https://xeroxyt-nt-apiv1.onrender.com',
+    'https://xeroxyt-nt-apiv1-5vsz.onrender.com',
+    'https://xeroxyt-nt-apiv1-m28t.onrender.com'
+];
+
+// Initialize with a random mirror
+let currentApiBase = API_MIRRORS[Math.floor(Math.random() * API_MIRRORS.length)];
+
+// Function to switch to the next mirror in case of failure
+const switchApiMirror = () => {
+    const currentIndex = API_MIRRORS.indexOf(currentApiBase);
+    const nextIndex = (currentIndex + 1) % API_MIRRORS.length;
+    currentApiBase = API_MIRRORS[nextIndex];
+    console.warn(`API Mirror switched to: ${currentApiBase}`);
+};
+
+// Export the current base URL getter for other components if needed
+export const getApiBaseUrl = () => currentApiBase;
+// Maintain backward compatibility for imports, though dynamic now
+export const API_BASE_URL = currentApiBase; 
+
 const SIAWASE_API_BASE = "https://siawaseok-inv.sytes.net/api";
 
 // --- CACHING LOGIC ---
@@ -224,10 +246,10 @@ const smartFetch = async (url: string, options: RequestInit = {}): Promise<any> 
     }
 };
 
-const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = 1) => {
+const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = API_MIRRORS.length): Promise<any> => {
     const headers = { ...options.headers };
-    // Normal endpoints use the original render API
-    const url = `${API_BASE_URL}/api/${endpoint}`;
+    // Use the currently selected active mirror
+    const url = `${currentApiBase}/api/${endpoint}`;
 
     try {
         // Use smartFetch to utilize GAS proxy if available
@@ -241,14 +263,18 @@ const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = 1
         }
 
         if (!response.ok) {
-            if ((response.status === 429 || response.status === 403) && retries > 0) {
-                await new Promise(r => setTimeout(r, 1500));
-                return apiFetch(endpoint, options, retries - 1);
-            }
             throw new Error(data.error || `Request failed for ${endpoint} with status ${response.status}`);
         }
         return data;
     } catch (err: any) {
+        console.warn(`Request failed for ${url}:`, err.message);
+        
+        // Failover logic
+        if (retries > 0) {
+            switchApiMirror();
+            // Retry with the new mirror
+            return apiFetch(endpoint, options, retries - 1);
+        }
         throw err;
     }
 };
