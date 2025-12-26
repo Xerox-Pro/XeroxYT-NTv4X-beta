@@ -1,31 +1,13 @@
 
-import React, { useRef } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import { CloseIcon, CheckIcon, SaveIcon } from './icons/Icons';
-import { usePreference } from '../contexts/PreferenceContext';
+import { CheckIcon } from './icons/Icons';
 
 interface UpdateAnnouncementModalProps {
     onClose: () => void;
 }
 
 const UpdateAnnouncementModal: React.FC<UpdateAnnouncementModalProps> = ({ onClose }) => {
-    const { importUserData } = usePreference();
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const handleImportClick = () => {
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            await importUserData(file);
-            // Don't close immediately to show success/failure logic if handled in context, 
-            // but for now we rely on the alert/reload in PreferenceContext.
-            onClose();
-        }
-    };
-
     return createPortal(
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[2000] flex items-center justify-center animate-fade-in p-4" onClick={onClose}>
             <div 
@@ -42,56 +24,35 @@ const UpdateAnnouncementModal: React.FC<UpdateAnnouncementModalProps> = ({ onClo
                         更新内容
                     </h3>
                     
-                    <ul className="space-y-4 mb-8">
+                    <ul className="space-y-6 mb-8">
                         <li className="flex items-start gap-3">
-                            <div className="mt-1 bg-green-100 dark:bg-green-900/30 p-1 rounded-full text-green-600 dark:text-green-400">
-                                <CheckIcon className="w-5 h-5 fill-current" />
+                            <div className="mt-1 bg-green-100 dark:bg-green-900/30 p-1 rounded-full text-green-600 dark:text-green-400 flex-shrink-0">
+                                <CheckIcon className="w-6 h-6 fill-current" />
                             </div>
                             <div>
-                                <strong className="block text-black dark:text-white text-lg">データ復元機能の強化</strong>
-                                <span className="text-sm text-yt-light-gray">以前のURLや別デバイスで保存したバックアップファイル（.json）を、この画面からすぐに読み込めるようになりました。</span>
+                                <strong className="block text-black dark:text-white text-lg mb-1">XeroxYT-NTv4X リリース</strong>
+                                <span className="text-sm text-yt-light-gray leading-relaxed">
+                                    XeroxYT-NTv4Xがリリースされました。Google Apps Script (GAS) 環境での動作に完全対応（GASオンリー）し、よりシンプルで高速な動作を実現しました。
+                                </span>
                             </div>
                         </li>
                         <li className="flex items-start gap-3">
-                            <div className="mt-1 bg-blue-100 dark:bg-blue-900/30 p-1 rounded-full text-blue-600 dark:text-blue-400">
-                                <CheckIcon className="w-5 h-5 fill-current" />
+                            <div className="mt-1 bg-blue-100 dark:bg-blue-900/30 p-1 rounded-full text-blue-600 dark:text-blue-400 flex-shrink-0">
+                                <CheckIcon className="w-6 h-6 fill-current" />
                             </div>
                             <div>
-                                <strong className="block text-black dark:text-white text-lg">設定管理ページの刷新</strong>
-                                <span className="text-sm text-yt-light-gray">「設定と管理」ページで、データのバックアップやブロック設定の解除が簡単に行えるようになりました。</span>
+                                <strong className="block text-black dark:text-white text-lg mb-1">クラウドログイン機能の搭載</strong>
+                                <span className="text-sm text-yt-light-gray leading-relaxed">
+                                    新しいログイン機能により、登録チャンネルや視聴履歴をクラウドに保存できるようになりました。これにより、デバイス間でのデータ移行や、誤ってデータを消してしまった際の復元が簡単に行えます。
+                                </span>
                             </div>
                         </li>
                     </ul>
 
-                    {/* Data Restoration Section */}
-                    <div className="bg-yt-light dark:bg-yt-dark-gray p-5 rounded-xl border border-yt-spec-light-20 dark:border-yt-spec-20 mb-6">
-                        <h4 className="font-bold text-base text-black dark:text-white mb-2 flex items-center gap-2">
-                            <SaveIcon /> データの引継ぎ・復元
-                        </h4>
-                        <p className="text-sm text-yt-light-gray mb-4 leading-relaxed">
-                            以前のサイトで使用していたバックアップファイル（.json）をお持ちですか？<br/>
-                            下のボタンからファイルを読み込むことで、登録チャンネルや設定をすぐに復元できます。
-                        </p>
-                        <input 
-                            type="file" 
-                            ref={fileInputRef} 
-                            className="hidden" 
-                            accept=".json" 
-                            onChange={handleFileChange} 
-                        />
-                        <button 
-                            onClick={handleImportClick}
-                            className="w-full bg-white dark:bg-yt-light-black border border-yt-spec-light-20 dark:border-yt-spec-20 text-yt-blue font-bold py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-yt-spec-10 transition-colors flex items-center justify-center gap-2 shadow-sm"
-                        >
-                            <SaveIcon />
-                            バックアップファイルを読み込む
-                        </button>
-                    </div>
-
                     <div className="flex justify-center">
                         <button 
                             onClick={onClose}
-                            className="bg-black dark:bg-white text-white dark:text-black font-bold py-3 px-8 rounded-full hover:opacity-80 transition-opacity shadow-lg"
+                            className="bg-black dark:bg-white text-white dark:text-black font-bold py-3 px-8 rounded-full hover:opacity-80 transition-opacity shadow-lg w-full sm:w-auto"
                         >
                             閉じる
                         </button>

@@ -2,6 +2,7 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback, useRef } from 'react';
 import type { Video } from '../types';
 import { usePreference } from './PreferenceContext';
+import { useAuth } from './AuthContext';
 
 interface HistoryContextType {
   history: Video[];
@@ -20,6 +21,7 @@ const MAX_HISTORY_LENGTH = 200;
 
 export const HistoryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction, isGuestMode } = usePreference();
+  const { triggerAutoSync } = useAuth();
   const isInitialized = useRef(false);
 
   const [history, setHistory] = useState<Video[]>([]);
@@ -40,24 +42,26 @@ export const HistoryProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
   }, []);
 
-  // Sync Write
+  // Sync Write & Auto Cloud Sync
   useEffect(() => {
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save history to localStorage", error);
     }
-  }, [history]);
+  }, [history, isGuestMode, triggerAutoSync]);
 
   useEffect(() => {
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(SHORTS_HISTORY_KEY, JSON.stringify(shortsHistory));
+      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save shorts history to localStorage", error);
     }
-  }, [shortsHistory]);
+  }, [shortsHistory, isGuestMode, triggerAutoSync]);
 
   const addVideoToHistory = useCallback((video: Video) => {
     if (isGuestMode) return; 

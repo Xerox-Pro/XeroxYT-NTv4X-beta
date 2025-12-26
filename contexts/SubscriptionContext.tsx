@@ -1,7 +1,8 @@
 
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useRef } from 'react';
 import type { Channel } from '../types';
 import { usePreference } from './PreferenceContext';
+import { useAuth } from './AuthContext';
 
 interface SubscriptionContextType {
   subscribedChannels: Channel[];
@@ -14,6 +15,9 @@ const SubscriptionContext = createContext<SubscriptionContextType | undefined>(u
 
 export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction } = usePreference();
+  const { triggerAutoSync } = useAuth();
+  const isInitialized = useRef(false);
+
   const [subscribedChannels, setSubscribedChannels] = useState<Channel[]>(() => {
     try {
       const item = window.localStorage.getItem('subscribedChannels');
@@ -25,13 +29,18 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
   });
 
   useEffect(() => {
+      isInitialized.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialized.current) return;
     try {
       window.localStorage.setItem('subscribedChannels', JSON.stringify(subscribedChannels));
-    // FIX: Added curly braces to the catch block to fix a syntax error.
+      triggerAutoSync();
     } catch (error) {
       console.error(error);
     }
-  }, [subscribedChannels]);
+  }, [subscribedChannels, triggerAutoSync]);
 
   const subscribe = (channel: Channel) => {
     setSubscribedChannels(prev => {

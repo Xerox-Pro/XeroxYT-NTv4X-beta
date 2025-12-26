@@ -1,6 +1,7 @@
 
-import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback, useRef } from 'react';
 import { usePreference } from './PreferenceContext';
+import { useAuth } from './AuthContext';
 
 interface SearchHistoryContextType {
   searchHistory: string[];
@@ -16,6 +17,9 @@ const MAX_HISTORY_LENGTH = 50;
 
 export const SearchHistoryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction, isGuestMode } = usePreference();
+  const { triggerAutoSync } = useAuth();
+  const isInitialized = useRef(false);
+
   const [searchHistory, setSearchHistory] = useState<string[]>(() => {
     try {
       const item = window.localStorage.getItem(SEARCH_HISTORY_KEY);
@@ -27,12 +31,18 @@ export const SearchHistoryProvider: React.FC<{ children: ReactNode }> = ({ child
   });
 
   useEffect(() => {
+      isInitialized.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory));
+      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save search history to localStorage", error);
     }
-  }, [searchHistory]);
+  }, [searchHistory, isGuestMode, triggerAutoSync]);
 
   const addSearchTerm = useCallback((term: string) => {
     if (isGuestMode) return; // Do not save search history in guest mode

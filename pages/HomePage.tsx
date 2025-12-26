@@ -9,9 +9,11 @@ import { usePreference } from '../contexts/PreferenceContext';
 import { getXraiRecommendations } from '../utils/recommendation';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import type { Video } from '../types';
-import { SearchIcon, SaveIcon, DownloadIcon } from '../components/icons/Icons';
+import { SearchIcon, SaveIcon, DownloadIcon, RepeatIcon } from '../components/icons/Icons';
 
-const MAX_FEED_VIDEOS = 1200; // Increased capacity for longer browsing
+const MAX_FEED_VIDEOS = 1200; 
+const CACHE_KEY = 'home_feed_cache';
+const CACHE_DURATION = 20 * 60 * 1000; // 20 minutes
 
 const HomePage: React.FC = () => {
     const [feed, setFeed] = useState<Video[]>([]);
@@ -43,8 +45,19 @@ const HomePage: React.FC = () => {
         return !(hasSubscriptions || hasSearchHistory || hasWatchHistory);
     }, [subscribedChannels, searchHistory, watchHistory]);
 
+    // Save to Cache when feed updates (only if it's the first page)
+    useEffect(() => {
+        if (feed.length > 0 && page === 1 && !isLoading) {
+            const cacheData = {
+                timestamp: Date.now(),
+                feed,
+                shortsFeed
+            };
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+        }
+    }, [feed, shortsFeed, page, isLoading]);
 
-    const loadRecommendations = useCallback(async (pageNum: number) => {
+    const loadRecommendations = useCallback(async (pageNum: number, forceRefresh = false) => {
         if (feedLengthRef.current >= MAX_FEED_VIDEOS) {
             setHasNextPage(false);
             setIsFetchingMore(false);
@@ -52,6 +65,28 @@ const HomePage: React.FC = () => {
         }
 
         const isInitial = pageNum === 1;
+        
+        // --- Cache Logic ---
+        if (isInitial && !forceRefresh) {
+            try {
+                const cachedRaw = localStorage.getItem(CACHE_KEY);
+                if (cachedRaw) {
+                    const cached = JSON.parse(cachedRaw);
+                    const now = Date.now();
+                    if (now - cached.timestamp < CACHE_DURATION && cached.feed && cached.feed.length > 0) {
+                        setFeed(cached.feed);
+                        setShortsFeed(cached.shortsFeed || []);
+                        cached.feed.forEach((v: Video) => seenIdsRef.current.add(v.id));
+                        setIsLoading(false);
+                        return; // Exit, use cache
+                    }
+                }
+            } catch (e) {
+                console.error("Cache read error", e);
+            }
+        }
+        // -------------------
+
         if (isInitial) setIsLoading(true);
         else setIsFetchingMore(true);
         
@@ -59,7 +94,6 @@ const HomePage: React.FC = () => {
             let newVideos: Video[] = [];
             let newShorts: Video[] = [];
 
-            // XRAI Algorithm for guest users (Default now)
             const xraiRes = await getXraiRecommendations({
                 searchHistory, watchHistory, shortsHistory, subscribedChannels,
                 ngKeywords, ngChannels, hiddenVideos, negativeKeywords,
@@ -77,7 +111,6 @@ const HomePage: React.FC = () => {
             const uniqueNewVideos = newVideos.filter(v => !seenIdsRef.current.has(v.id));
             uniqueNewVideos.forEach(v => seenIdsRef.current.add(v.id));
 
-            // Only update shorts on initial load or if we have new distinct ones
             if (isInitial) {
                 setFeed(uniqueNewVideos);
                 setShortsFeed(newShorts);
@@ -103,16 +136,25 @@ const HomePage: React.FC = () => {
 
     useEffect(() => {
         setPage(1);
+        // Only reset if we are NOT using cache in loadRecommendations (handled inside)
+        // But seenIdsRef needs to be cleared if we are doing a fresh logic run
+        // We defer this clear to inside loadRecommendations if not using cache.
+        // Actually simpler: Just call load(1).
+        loadRecommendations(1);
+    }, []); // Run once on mount
+    
+    const handleRefresh = () => {
+        setPage(1);
         setFeed([]);
         setShortsFeed([]);
         seenIdsRef.current.clear();
         setError(null);
         setHasNextPage(true);
         feedLengthRef.current = 0;
-        
-        loadRecommendations(1);
-    }, [loadRecommendations]);
-    
+        localStorage.removeItem(CACHE_KEY); // Clear cache
+        loadRecommendations(1, true); // Force refresh
+    };
+
     const loadMore = () => {
         if (!isFetchingMore && !isLoading && hasNextPage && feedLengthRef.current < MAX_FEED_VIDEOS) {
             const nextPage = page + 1;
@@ -176,6 +218,18 @@ const HomePage: React.FC = () => {
 
     return (
         <div className="pb-10 pt-4">
+            {/* Header / Refresh Button */}
+            <div className="flex justify-between items-center mb-4 px-2">
+                <h2 className="text-xl font-bold hidden sm:block">おすすめ</h2>
+                <button 
+                    onClick={handleRefresh}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-yt-light dark:bg-yt-spec-10 hover:bg-gray-200 dark:hover:bg-yt-spec-20 rounded-full text-sm font-medium transition-colors ml-auto"
+                >
+                    <RepeatIcon className="w-4 h-4" />
+                    おすすめを再取得
+                </button>
+            </div>
+
             {error && <div className="text-red-500 text-center mb-4">{error}</div>}
             
             {(shortsFeed.length > 0) && (

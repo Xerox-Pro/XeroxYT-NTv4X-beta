@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { CloseIcon, LoginIcon, UserIcon, SaveIcon, LogoutIcon } from './icons/Icons';
+import { CloseIcon, LoginIcon, UserIcon, SaveIcon, LogoutIcon, RepeatIcon } from './icons/Icons';
 
 interface AccountModalProps {
     isOpen: boolean;
@@ -10,7 +10,7 @@ interface AccountModalProps {
 }
 
 const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
-    const { user, login, signup, logout, syncData, isLoading, error: authError } = useAuth();
+    const { user, login, signup, logout, syncData, fetchUserData, isLoading, error: authError } = useAuth();
     const [mode, setMode] = useState<'login' | 'signup'>('login');
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
@@ -42,6 +42,12 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
     const handleSync = async () => {
         await syncData();
     };
+
+    const handleReload = async () => {
+        if(window.confirm('クラウドから最新データを取得して上書きしますか？\n(現在のローカルの変更は破棄される可能性があります)')) {
+            await fetchUserData();
+        }
+    }
 
     return createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center animate-fade-in" onClick={onClose}>
@@ -76,6 +82,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
                                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-50"
                                 >
                                     {isLoading ? '処理中...' : <><SaveIcon /> データ同期 (クラウドへ保存)</>}
+                                </button>
+
+                                <button 
+                                    onClick={handleReload}
+                                    disabled={isLoading}
+                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-50"
+                                >
+                                    {isLoading ? '処理中...' : <><RepeatIcon /> 再読み込み (クラウドから取得)</>}
                                 </button>
                                 
                                 <button 
