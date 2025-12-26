@@ -147,17 +147,17 @@ const LiteModePage: React.FC = () => {
             return;
         }
 
-        // Prioritize 360p video URL from new structure
-        let url = data.streamingUrl; // Often this is the 360p or 720p direct link
+        // Prioritize streamingUrl (M3U8) as requested
+        let url = data.streamingUrl; 
         
         if (!url && data.combinedFormats) {
-            // Fallback to searching in combinedFormats
+            // Fallback
             const format = data.combinedFormats.find((f: any) => f.quality === '360p' || f.quality === '720p');
             if (format) url = format.url;
         }
 
         if (!url) {
-            setError('ストリーミング可能な動画ソース(360p/720p)が見つかりませんでした。');
+            setError('ストリーミング可能な動画ソース(360p/720p/HLS)が見つかりませんでした。');
             return;
         }
 
@@ -165,15 +165,15 @@ const LiteModePage: React.FC = () => {
         const videoSrc = url;
 
         const video = document.createElement('video');
+        video.setAttribute('data-v-a03ccfac', ''); // Matches requested attribute
         video.controls = true;
         video.autoplay = true;
         video.style.width = "100%";
         video.style.borderRadius = "8px";
         video.style.aspectRatio = "16/9";
         video.style.backgroundColor = "#000";
+        // Explicitly set src and type order as requested
         video.src = videoSrc;
-        video.setAttribute('playsinline', '');
-        // Explicitly set MIME type for HLS support in compatible browsers/players
         video.setAttribute('type', 'application/x-mpegURL');
         
         container.appendChild(video);

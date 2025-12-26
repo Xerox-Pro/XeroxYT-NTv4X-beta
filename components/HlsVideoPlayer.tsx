@@ -20,18 +20,6 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
     // Forward the ref to the parent if provided, otherwise use internal ref
     useImperativeHandle(ref, () => internalVideoRef.current!);
 
-    // Handle type attribute explicitly
-    useEffect(() => {
-        const video = internalVideoRef.current;
-        if (video) {
-            if (type) {
-                video.setAttribute('type', type);
-            } else {
-                video.removeAttribute('type');
-            }
-        }
-    }, [type]);
-
     useEffect(() => {
       const video = internalVideoRef.current;
       if (!video) return;
@@ -84,7 +72,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
-        video.src = src;
+        // src is set via prop on the video tag
         if (autoPlay) {
           video.addEventListener('loadedmetadata', () => {
             video.play().catch(e => console.warn("Autoplay prevented:", e));
@@ -97,7 +85,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         });
       } else {
           // Attempt to play anyway (might work for mp4 fallback if the src is actually mp4)
-          video.src = src;
+          // src is set via prop on the video tag
           if (autoPlay) {
              video.play().catch(() => {});
           }
@@ -116,9 +104,12 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
           )}
           <video
               ref={internalVideoRef}
+              src={src}
               controls={controls}
+              autoPlay={autoPlay}
               className="w-full h-full object-contain"
               playsInline={playsInline}
+              data-v-a03ccfac="" // Matching the requested data attribute
           />
       </div>
     );

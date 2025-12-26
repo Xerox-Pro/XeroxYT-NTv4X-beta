@@ -556,7 +556,7 @@ const VideoPlayerPage: React.FC = () => {
                             <HlsVideoPlayer 
                                 ref={streamVideoRef} 
                                 src={getStreamUrl} 
-                                type={streamData?.streamingUrl === getStreamUrl ? "application/x-mpegURL" : undefined}
+                                type="application/x-mpegURL" 
                                 controls={true} 
                                 autoPlay={true} 
                                 playsInline={true}
