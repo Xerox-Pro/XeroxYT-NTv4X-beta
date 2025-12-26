@@ -161,10 +161,8 @@ const LiteModePage: React.FC = () => {
             return;
         }
 
-        // Use direct URL if offline to skip proxy attempt which requires server
-        // If offline, we rely on browser cache of the video file itself (rare) OR if the URL is accessible.
-        // For cached metadata display, we proceed. Playback might fail if media isn't cached.
-        const videoSrc = isOnline ? `${API_BASE_URL}/api/video-proxy?url=${encodeURIComponent(url)}` : url;
+        // Use direct URL (no proxy wrapper) as requested
+        const videoSrc = url;
 
         const video = document.createElement('video');
         video.controls = true;

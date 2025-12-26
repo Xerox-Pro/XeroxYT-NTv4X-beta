@@ -1,4 +1,3 @@
-
 import type { Video, VideoDetails, Channel, ChannelDetails, ApiPlaylist, Comment, PlaylistDetails, SearchResults, HomeVideo, HomePlaylist, ChannelHomeData, CommunityPost, CommentResponse, StreamData } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
@@ -231,7 +230,8 @@ const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = 1
     const url = `${API_BASE_URL}/api/${endpoint}`;
 
     try {
-        const response = await fetch(url, { ...options, headers });
+        // Use smartFetch to utilize GAS proxy if available
+        const response = await smartFetch(url, { ...options, headers });
         const text = await response.text();
         let data;
         try {
