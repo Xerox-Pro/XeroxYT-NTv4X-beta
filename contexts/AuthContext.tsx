@@ -24,6 +24,36 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to handle fetch via GAS proxy if available, or standard fetch
+const smartFetch = async (url: string): Promise<any> => {
+    // @ts-ignore - google object exists in GAS environment
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+        return new Promise((resolve, reject) => {
+            // @ts-ignore
+            google.script.run
+                .withSuccessHandler((res: any) => {
+                    resolve({
+                        ok: res.status >= 200 && res.status < 300,
+                        status: res.status,
+                        json: async () => {
+                            try { return JSON.parse(res.body); }
+                            catch (e) { throw new Error('Invalid JSON response'); }
+                        },
+                        text: async () => res.body
+                    });
+                })
+                .withFailureHandler((err: any) => {
+                    console.error("GAS Proxy Error:", err);
+                    reject(new Error("GAS Proxy Error: " + err));
+                })
+                .proxyApi(url); // Call the server-side GAS function
+        });
+    } else {
+        // Fallback for local development (might fail CORS if not proxied)
+        return fetch(url);
+    }
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -70,7 +100,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setError(null);
         try {
             const url = buildUrl('newcreateuser', { userid: id, pw: pw });
-            const res = await fetch(url);
+            const res = await smartFetch(url);
             
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
@@ -103,7 +133,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             // Correct endpoint for reading data: readalluserdate
             const url = buildUrl('readalluserdate', { userid: id, pw: pw });
-            const res = await fetch(url);
+            const res = await smartFetch(url);
+            
             if (!res.ok) throw new Error('Failed to fetch user data');
             const data = await res.json();
 
@@ -239,23 +270,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if(subscriptionname) params.subscriptionname = subscriptionname;
 
             const url = buildUrl('writealldeta', params);
-            // Use sendBeacon for more reliable background sending if silent
-            if (silent && navigator.sendBeacon) {
-                // sendBeacon requires Blob or FormData usually, but GET param URL is tricky.
-                // We'll stick to fetch but don't await strictly if unmounting.
-                fetch(url).catch(e => console.error("Auto-sync failed", e));
+            
+            // Use smartFetch to handle GAS Proxy logic
+            // Note: smartFetch resolves a Response-like object, does not support sendBeacon directly
+            const res = await smartFetch(url);
+            
+            if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `Sync failed: ${res.status}`);
+            }
+            const data = await res.json();
+            if (data.message === 'Success') {
+                if (!silent) alert('同期が完了しました。');
             } else {
-                const res = await fetch(url);
-                if (!res.ok) {
-                     const errData = await res.json().catch(() => ({}));
-                     throw new Error(errData.error || `Sync failed: ${res.status}`);
-                }
-                const data = await res.json();
-                if (data.message === 'Success') {
-                    if (!silent) alert('同期が完了しました。');
-                } else {
-                    throw new Error('Sync failed: ' + (data.error || JSON.stringify(data)));
-                }
+                throw new Error('Sync failed: ' + (data.error || JSON.stringify(data)));
             }
 
         } catch (err: any) {

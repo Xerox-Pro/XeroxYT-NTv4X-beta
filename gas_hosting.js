@@ -15,16 +15,33 @@
  */
 
 function doGet(e) {
-  // API機能と同居させる場合のための分岐
-  if (e.parameter.userid && e.parameter.pw) {
-     // ここにAPI用の処理 (handleLoginなど) を記述、または別ファイルから呼び出し
-     // return handleApiRequest(e); 
-  }
-  
   // ルートアクセス時はアプリのHTMLを返す
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setTitle('XeroxYT-NTv4X')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * クライアントサイド(React)からのAPIリクエストを中継する関数
+ * CORSエラーを回避するためにGASサーバー側でfetchを実行します。
+ */
+function proxyApi(url) {
+  try {
+    var response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      muteHttpExceptions: true
+    });
+    
+    return {
+      status: response.getResponseCode(),
+      body: response.getContentText()
+    };
+  } catch (e) {
+    return {
+      status: 500,
+      body: JSON.stringify({ error: e.toString() })
+    };
+  }
 }
