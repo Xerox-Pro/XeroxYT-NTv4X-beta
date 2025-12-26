@@ -1,8 +1,8 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-// 末尾の/execを確認し、必要に応じて調整。GASのウェブアプリURLは通常 .../exec で終わります。
-const API_BASE_URL = "https://script.google.com/macros/s/AKfycbwWDY-B0gMnBOn0kkpHJEADw8ARuJ_cX4OQB3xSmxMmNPMhgbyPaccjno9e4z-qAT0R/exec";
+// New Render API Endpoint
+const API_BASE_URL = "https://xerox-login-api.onrender.com";
 
 interface User {
     id: string;
@@ -34,12 +34,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     }, []);
 
-    // Helper to construct URL safely
+    // Helper to construct URL for Express API
     const buildUrl = (action: string, params: Record<string, string>) => {
         const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
         const searchParams = new URLSearchParams(params);
-        // e.pathInfo 用にパスを追加しつつ、念のためクエリパラメータにも path を追加
-        searchParams.append('path', action); 
+        // Express backend uses route paths (e.g. /login), not query param routing
         return `${baseUrl}/${action}?${searchParams.toString()}`;
     };
 
@@ -48,9 +47,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setError(null);
         try {
             const url = buildUrl('login', { userid: id, pw: pw });
-            // GAS API sometimes requires no-cors for obscure reasons, but usually CORS is fine if deployed as Web App "Anyone".
-            // If fetch fails, we assume simple GET is sufficient.
             const res = await fetch(url);
+            
+            // Handle HTTP errors (e.g., 401 Unauthorized)
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.message || `Login failed: ${res.status}`);
+            }
+
             const data = await res.json();
 
             if (data.status === 'success') {
@@ -74,13 +78,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             const url = buildUrl('newcreateuser', { userid: id, pw: pw });
             const res = await fetch(url);
+            
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || errData.message || `Signup failed: ${res.status}`);
+            }
+
             const data = await res.json();
             
-            // API returns status 200 on success string message
-            if (data.status === 200 || (typeof data.message === 'string' && data.message.includes('Success'))) {
+            // Backend returns { message: "Success: ... users created." }
+            if (data.message && data.message.includes('Success')) {
                  await login(id, pw);
             } else {
-                 throw new Error(data.message || 'Signup failed');
+                 throw new Error(data.error || data.message || 'Signup failed');
             }
         } catch (err: any) {
             setError(err.message);
@@ -107,19 +117,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const subscriptions: any[] = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
 
             // Format for API (Comma separated strings)
-            // Limit to avoid URL length limits
-            const limit = 20;
+            // Increased limit slightly as Render/Express can handle longer URLs than GAS
+            const limit = 50;
             
+            const sanitize = (s: string) => s.replace(/,/g, ''); // Simple comma sanitization
+
             const searchID = searchHistory.slice(0, limit).join(',');
             
             const histryid = history.slice(0, limit).map(v => v.id).join(',');
-            const test = history.slice(0, limit).map(v => v.title.replace(/,/g, '')).join(','); // sanitize commas
+            const test = history.slice(0, limit).map(v => sanitize(v.title)).join(',');
             
             const shorthistryID = shortsHistory.slice(0, limit).map(v => v.id).join(',');
-            const shorthistrytext = shortsHistory.slice(0, limit).map(v => v.title.replace(/,/g, '')).join(',');
+            const shorthistrytext = shortsHistory.slice(0, limit).map(v => sanitize(v.title)).join(',');
 
             const subscriptionID = subscriptions.slice(0, limit).map(c => c.id).join(',');
-            const subscriptionname = subscriptions.slice(0, limit).map(c => c.name.replace(/,/g, '')).join(',');
+            const subscriptionname = subscriptions.slice(0, limit).map(c => sanitize(c.name)).join(',');
 
             const params: Record<string, string> = {
                 userid: user.id,
@@ -136,12 +148,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
             const url = buildUrl('writealldeta', params);
             const res = await fetch(url);
+            
+            if (!res.ok) {
+                 const errData = await res.json().catch(() => ({}));
+                 throw new Error(errData.error || `Sync failed: ${res.status}`);
+            }
+
             const data = await res.json();
             
-            if (data.message !== 'Success' && data.message !== 'No data to write.') {
-                throw new Error('Sync failed: ' + JSON.stringify(data));
+            // Backend returns { message: "Success", items: ... }
+            if (data.message === 'Success') {
+                alert('同期が完了しました。');
+            } else {
+                throw new Error('Sync failed: ' + (data.error || JSON.stringify(data)));
             }
-            alert('同期が完了しました。');
 
         } catch (err: any) {
             console.error(err);
