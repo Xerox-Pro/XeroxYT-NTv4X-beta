@@ -695,11 +695,70 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
         const uploadedAt = data.primary_info?.relative_date?.text || data.primary_info?.published?.text || '';
         
         // Map Author
-        const owner = data.secondary_info?.owner;
-        const channelName = owner?.author?.name || 'Unknown';
-        const channelId = owner?.author?.id || '';
-        const channelAvatarUrl = owner?.author?.thumbnails?.[0]?.url || '';
-        const subscriberCount = owner?.subscriber_count?.text || '';
+        let owner = data.secondary_info?.owner;
+        let channelName = owner?.author?.name || 'Unknown';
+        let channelId = owner?.author?.id || '';
+        let channelAvatarUrl = owner?.author?.thumbnails?.[0]?.url || '';
+        let subscriberCount = owner?.subscriber_count?.text || '';
+
+        const collaborators: Channel[] = [];
+        
+        // Handle Collaborators (Dialog)
+        const dialog = owner?.author?.endpoint?.showDialogCommand?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
+        if (dialog) {
+             const listItems = dialog.customContent?.listViewModel?.listItems;
+             if (listItems && Array.isArray(listItems)) {
+                 for (const item of listItems) {
+                     const vm = item.listItemViewModel;
+                     if (!vm) continue;
+                     
+                     const cName = vm.title?.content || '';
+                     const cId = vm.title?.commandRuns?.[0]?.onTap?.innertubeCommand?.browseEndpoint?.browseId;
+                     let cSub = vm.subtitle?.content || '';
+                     
+                     // Clean up sub count if it contains extra text
+                     // e.g., "‎⁨@Nanatsukaze_⁩ • ⁨チャンネル登録者数 4.47万人⁩"
+                     const subMatch = cSub.match(/チャンネル登録者数\s+(.*)/);
+                     if (subMatch) {
+                         // Remove closing unicode characters if any (like POP directional formatting)
+                         cSub = subMatch[1].replace(/[\u2000-\u206F]/g, '').trim(); 
+                     }
+
+                     if (cId && cName) {
+                         collaborators.push({
+                             id: cId,
+                             name: cName,
+                             avatarUrl: '', // Will fetch below
+                             subscriberCount: cSub
+                         });
+                     }
+                 }
+             }
+        }
+
+        // Fix N/A Owner or missing avatars for collaborators
+        if (collaborators.length > 0) {
+             await Promise.all(collaborators.map(async (c) => {
+                 try {
+                     const cDetails = await getChannelDetails(c.id);
+                     c.avatarUrl = cDetails.avatarUrl || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
+                     // Use the cleaner sub count from details if available
+                     if (cDetails.subscriberCount) c.subscriberCount = cDetails.subscriberCount;
+                 } catch (e) {
+                     console.warn(`Failed to fetch details for collaborator ${c.name}`, e);
+                     c.avatarUrl = 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
+                 }
+             }));
+
+             // If main owner is broken (N/A), use the first collaborator
+             if (channelName === 'N/A' || channelId === 'N/A' || !channelId) {
+                 const main = collaborators[0];
+                 channelName = main.name;
+                 channelId = main.id;
+                 channelAvatarUrl = main.avatarUrl;
+                 subscriberCount = main.subscriberCount;
+             }
+        }
 
         // Map Description
         const description = data.secondary_info?.description?.text || '';
@@ -775,7 +834,7 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                 avatarUrl: channelAvatarUrl,
                 subscriberCount: subscriberCount
             },
-            collaborators: [], 
+            collaborators: collaborators, 
             relatedVideos: relatedVideos,
             isLive: false,
         };
