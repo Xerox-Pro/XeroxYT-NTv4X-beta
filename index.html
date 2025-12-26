@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- FIX: Relative path for manifest -->
+    <!-- FIX: Relative path for manifest (Note: PWA features may be limited on GAS) -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0f0f0f">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,9 +41,8 @@
         }
       }
     </script>
-    <!-- FIX: Relative path for CSS -->
-    <link rel="stylesheet" href="styles.css">
-    <!-- FIX: Relative paths for icons -->
+    <!-- FIX: Styles are now imported in index.tsx for bundling -->
+    <!-- <link rel="stylesheet" href="styles.css"> -->
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icon.svg">
@@ -55,47 +54,40 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          // FIX: Relative path for SW
+          // SW registration might fail on GAS frame, but safe to leave try-catch
           navigator.serviceWorker.register('sw.js')
             .then(registration => {
-              console.log('ServiceWorker registration successful with scope: ', registration.scope);
+              console.log('ServiceWorker registration successful');
             })
             .catch(err => {
-              console.log('ServiceWorker registration failed: ', err);
+              // console.log('ServiceWorker registration failed');
             });
         });
       }
     </script>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "react": "https://aistudiocdn.com/react@^19.1.1",
-    "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.25.1",
-    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
-    "vite": "https://aistudiocdn.com/vite@^7.1.12",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "youtubei.js": "https://aistudiocdn.com/youtubei.js@^16.0.1",
-    "express": "https://aistudiocdn.com/express@^5.1.0",
-    "dayjs": "https://aistudiocdn.com/dayjs@^1.11.19",
-    "dayjs/": "https://aistudiocdn.com/dayjs@^1.11.19/",
-    "url": "https://aistudiocdn.com/url@^0.11.4",
-    "child_process": "https://aistudiocdn.com/child_process@^1.0.2",
-    "process": "https://aistudiocdn.com/process@^0.11.10",
-    "fs": "https://aistudiocdn.com/fs@^0.0.1-security",
-    "@mlc-ai/web-llm": "https://esm.run/@mlc-ai/web-llm@0.2.46",
-    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0",
-    "hls.js": "https://aistudiocdn.com/hls.js@^1.6.15"
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "uuid": "https://esm.sh/uuid@^13.0.0",
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "url": "https://esm.sh/url@^0.11.4",
+    "hls.js": "https://esm.sh/hls.js@^1.6.15",
+    "dayjs/": "https://esm.sh/dayjs@^1.11.19/",
+    "dayjs": "https://esm.sh/dayjs@^1.11.19",
+    "@mlc-ai/web-llm": "https://esm.sh/@mlc-ai/web-llm@^0.2.80",
+    "vite-plugin-singlefile": "https://esm.sh/vite-plugin-singlefile@^2.3.0"
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body class="text-black dark:text-yt-white font-sans transition-colors duration-300">
     <div id="root"></div>
-    <!-- FIX: Relative path for module script -->
     <script type="module" src="index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
-</body>
+  </body>
 </html>

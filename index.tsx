@@ -12,6 +12,7 @@ import { PreferenceProvider } from './contexts/PreferenceContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './hooks/useTheme';
+import './styles.css'; // Import styles for bundling
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

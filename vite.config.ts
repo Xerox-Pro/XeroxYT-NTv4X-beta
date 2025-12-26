@@ -2,13 +2,17 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from 'vite';
+import { viteSingleFile } from 'vite-plugin-singlefile';
+
+// FIX: Get __dirname in an ES module environment to avoid using process.cwd(), which had typing issues.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-
-      base: 'https://cdn.jsdelivr.net/gh/Xerox-Pro/XeroxYT-NTv4X-beta@main/dist/',
+      plugins: [viteSingleFile()],
+      // GAS Configuration: Use relative paths and inline assets
+      base: './', 
       
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -16,7 +20,6 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          // FIX: '__dirname' is not available in ESM modules. Using 'process.cwd()' to get the project root.
           '@': path.resolve(__dirname),
         }
       },
@@ -24,6 +27,8 @@ export default defineConfig(({ mode }) => {
         outDir: 'dist',
         assetsDir: 'assets',
         emptyOutDir: true,
+        // Increase chunk size warning since we are bundling everything into one file
+        chunkSizeWarningLimit: 100000000, 
       }
     };
 });
