@@ -150,6 +150,12 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
                             </div>
                         </form>
                     )}
+                    
+                    <div className="mt-6 text-center">
+                        <p className="text-[10px] text-yt-light-gray opacity-50">
+                            ユーザーに関する責任は一切取ることができません
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>,

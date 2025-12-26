@@ -108,44 +108,76 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
             if (data.status === 'success' && data.data) {
                 const userData = data.data;
-                // Parse and apply to localStorage
-                if (userData.data) {
-                    const searchHistory: string[] = [];
-                    const videoHistory: any[] = [];
-                    const shortsHistory: any[] = [];
-                    const subscriptions: any[] = [];
+                const cloudItems = userData.data || [];
 
-                    userData.data.forEach((item: any) => {
-                        if (item.category === 'search') searchHistory.push(item.word);
-                        if (item.category === 'histry') videoHistory.push({ id: item.id, title: item.text }); // Minimal data
-                        if (item.category === 'shorthistry') shortsHistory.push({ id: item.id, title: item.text });
-                        if (item.category === 'subscription') subscriptions.push({ id: item.id, name: item.name });
-                    });
+                // 1. Prepare Data Containers
+                const searchHistory: string[] = [];
+                const videoHistoryMap = new Map<string, any>();
+                const shortsHistoryMap = new Map<string, any>();
+                const subscriptionsMap = new Map<string, any>();
 
-                    // Merge strategy: Overwrite local with cloud for consistency on login/reload
-                    // Note: This is a simplified merge. Real merge is complex.
-                    // For now, we trust cloud data if it exists.
-                    if (searchHistory.length > 0) localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
-                    
-                    // For history/subs, we need to be careful not to break objects if we only have ID/Title.
-                    // Ideally API should store full object, but current API stores limited fields.
-                    // We will only update if we have meaningful data, or if requested manually.
-                    
-                    // NOTE: Since the API stores limited fields (id, title/name), restoring full objects 
-                    // like avatars/thumbnails is impossible without re-fetching. 
-                    // For this implementation, we will skip overwriting complex objects 
-                    // unless we implement a full restoration logic (fetching details by ID).
-                    // However, we CAN restore the IDs which allows the app to refetch details later if needed.
-                    
-                    // Current API limitation: It only saves IDs and Names/Titles.
-                    // So we only update Search History safely. 
-                    // For subscriptions/history, we might lose thumbnails if we overwrite.
-                    // Let's just update what we can safely or skip if local data is richer.
-                    
-                    // Actually, the user requirement is "reflect data". 
-                    // We will respect that, but be aware of data loss (thumbnails).
-                    // Ideally, the app fetches details on the fly.
-                }
+                // 2. Load Local Data to Preserve Metadata if possible
+                const localHistory = JSON.parse(localStorage.getItem('videoHistory') || '[]');
+                const localShorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
+                const localSubs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
+
+                const localHistoryMap = new Map(localHistory.map((v: any) => [v.id, v]));
+                const localShortsMap = new Map(localShorts.map((v: any) => [v.id, v]));
+                const localSubsMap = new Map(localSubs.map((c: any) => [c.id, c]));
+
+                // 3. Process Cloud Items with Safety Checks
+                cloudItems.forEach((item: any) => {
+                    if (item.category === 'search') {
+                        searchHistory.push(item.word);
+                    }
+                    else if (item.category === 'histry') {
+                        const local = localHistoryMap.get(item.id);
+                        videoHistoryMap.set(item.id, local || {
+                            id: item.id,
+                            title: item.text || 'No Title',
+                            thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/mqdefault.jpg`,
+                            channelName: 'Unknown',
+                            channelId: '',
+                            channelAvatarUrl: '',
+                            views: '',
+                            uploadedAt: '',
+                            duration: '',
+                            isoDuration: ''
+                        });
+                    }
+                    else if (item.category === 'shorthistry') {
+                        const local = localShortsMap.get(item.id);
+                        shortsHistoryMap.set(item.id, local || {
+                            id: item.id,
+                            title: item.text || 'No Title',
+                            thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+                            channelName: '',
+                            channelId: '',
+                            views: '',
+                            uploadedAt: '',
+                            duration: ''
+                        });
+                    }
+                    else if (item.category === 'subscription') {
+                        const local = localSubsMap.get(item.id);
+                        subscriptionsMap.set(item.id, local || {
+                            id: item.id,
+                            name: item.name || 'Unknown Channel',
+                            avatarUrl: 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg',
+                            subscriberCount: ''
+                        });
+                    }
+                });
+
+                // 4. Save to LocalStorage
+                const newHistory = Array.from(videoHistoryMap.values());
+                const newShorts = Array.from(shortsHistoryMap.values());
+                const newSubs = Array.from(subscriptionsMap.values());
+
+                if (searchHistory.length > 0) localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+                if (newHistory.length > 0) localStorage.setItem('videoHistory', JSON.stringify(newHistory));
+                if (newShorts.length > 0) localStorage.setItem('shortsHistory', JSON.stringify(newShorts));
+                if (newSubs.length > 0) localStorage.setItem('subscribedChannels', JSON.stringify(newSubs));
             }
         } catch (e) {
             console.error("Fetch user data failed", e);
@@ -159,7 +191,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoading(true);
         try {
             await fetchUserDataInternal(user.id, user.password);
-            // Reload page to reflect changes in all contexts
+            // Force reload to reflect changes
             window.location.reload();
         } catch (e: any) {
             alert('データの取得に失敗しました: ' + e.message);
