@@ -443,11 +443,24 @@ const VideoPlayerPage: React.FC = () => {
 
     const getStreamUrl = useMemo(() => {
         if (!streamData) return null;
-        if (streamData.streamingUrl) return streamData.streamingUrl;
-        if (streamData.combinedFormats) {
+        let url = null;
+        
+        // Prioritize streamUrl (usually HLS)
+        if (streamData.streamingUrl) {
+            url = streamData.streamingUrl;
+        } 
+        // Fallback to direct MP4s (360p preferred)
+        else if (streamData.combinedFormats) {
              const format360 = streamData.combinedFormats.find((f: any) => f.quality === '360p');
-             if (format360) return format360.url;
-             if (streamData.combinedFormats.length > 0) return streamData.combinedFormats[0].url;
+             if (format360) url = format360.url;
+             else if (streamData.combinedFormats.length > 0) url = streamData.combinedFormats[0].url;
+        }
+        
+        if (url) {
+            const PROXY_PREFIX = 'https://corsproxy.io/?';
+            return url.startsWith('http') && !url.includes(PROXY_PREFIX) 
+                ? `${PROXY_PREFIX}${encodeURIComponent(url)}` 
+                : url;
         }
         return null;
     }, [streamData]);

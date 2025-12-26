@@ -29,6 +29,12 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
       // Reset error on src change
       setError(null);
 
+      // Use proxy to avoid CORS errors
+      // Note: We use the proxy for both HLS manifests and direct MP4s to ensure playback reliability
+      const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
+          ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
+          : src;
+
       const handleHlsError = (_event: any, data: any) => {
           if (data.fatal) {
               switch (data.type) {
@@ -58,11 +64,6 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         });
         hlsRef.current = hls;
         
-        // Use proxy to avoid CORS errors
-        const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
-            ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
-            : src;
-
         hls.loadSource(proxiedSrc);
         hls.attachMedia(video);
         
@@ -79,14 +80,6 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
-        // src is set via prop on the video tag
-        // Note: Safari usually handles CORS better for HLS or needs the proxy too.
-        // We apply proxy here as well for consistency if needed, but native implementation often requires direct access 
-        // or specific headers. Often proxied URLs work fine in Safari too.
-        const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
-            ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
-            : src;
-            
         video.src = proxiedSrc;
 
         if (autoPlay) {
@@ -100,8 +93,8 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
             setError("再生できませんでした。");
         });
       } else {
-          // Attempt to play anyway (might work for mp4 fallback if the src is actually mp4)
-          // src is set via prop on the video tag
+          // Attempt to play anyway (MP4 fallback)
+          video.src = proxiedSrc;
           if (autoPlay) {
              video.play().catch(() => {});
           }
@@ -124,7 +117,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
               autoPlay={autoPlay}
               className="w-full h-full object-contain"
               playsInline={playsInline}
-              data-v-a03ccfac="" // Matching the requested data attribute
+              data-v-a03ccfac="" 
           />
       </div>
     );
