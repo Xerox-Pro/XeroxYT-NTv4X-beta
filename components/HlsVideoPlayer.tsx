@@ -4,6 +4,7 @@ import Hls from 'hls.js';
 
 interface HlsVideoPlayerProps {
   src: string;
+  type?: string;
   autoPlay?: boolean;
   controls?: boolean;
   className?: string;
@@ -11,13 +12,25 @@ interface HlsVideoPlayerProps {
 }
 
 const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
-  ({ src, autoPlay = true, controls = true, className, playsInline = true }, ref) => {
+  ({ src, type, autoPlay = true, controls = true, className, playsInline = true }, ref) => {
     const internalVideoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<Hls | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     // Forward the ref to the parent if provided, otherwise use internal ref
     useImperativeHandle(ref, () => internalVideoRef.current!);
+
+    // Handle type attribute explicitly
+    useEffect(() => {
+        const video = internalVideoRef.current;
+        if (video) {
+            if (type) {
+                video.setAttribute('type', type);
+            } else {
+                video.removeAttribute('type');
+            }
+        }
+    }, [type]);
 
     useEffect(() => {
       const video = internalVideoRef.current;

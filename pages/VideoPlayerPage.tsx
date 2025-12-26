@@ -556,6 +556,7 @@ const VideoPlayerPage: React.FC = () => {
                             <HlsVideoPlayer 
                                 ref={streamVideoRef} 
                                 src={getStreamUrl} 
+                                type={streamData?.streamingUrl === getStreamUrl ? "application/x-mpegURL" : undefined}
                                 controls={true} 
                                 autoPlay={true} 
                                 playsInline={true}
@@ -701,54 +702,6 @@ const VideoPlayerPage: React.FC = () => {
                             </>
                         )}
                     </div>
-                </div>
-            </div>
-            
-            <div className={`w-full flex-shrink-0 flex flex-col gap-4 pb-10 ${isTheaterMode ? 'mt-6' : 'lg:w-[350px] xl:w-[400px]'}`}>
-                {showLiveChat && (
-                    <div className="w-full h-[600px] bg-yt-white dark:bg-yt-light-black rounded-xl overflow-hidden border border-yt-spec-light-20 dark:border-yt-spec-20 relative hidden lg:block mb-4">
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/10 z-0"><p className="text-xs text-yt-light-gray">読み込み中...</p></div>
-                        <iframe src={chatSrc} className="w-full h-full relative z-10" frameBorder="0"></iframe>
-                        <div className="absolute bottom-2 right-2 z-20">
-                            <button onClick={() => window.open(chatSrc, 'LiveChat', 'width=400,height=600')} className="text-xs bg-yt-blue text-white px-2 py-1 rounded opacity-70 hover:opacity-100">別窓</button>
-                        </div>
-                    </div>
-                )}
-
-                {currentPlaylist && <PlaylistPanel playlist={currentPlaylist} authorName={currentPlaylist.authorName} videos={isShuffle ? shuffledVideos : playlistVideos} currentVideoId={videoId} isShuffle={isShuffle} isLoop={isLoop} toggleShuffle={toggleShuffle} toggleLoop={toggleLoop} onReorder={handlePlaylistReorder} />}
-                
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 pt-0">
-                    <button className="px-3 py-1.5 bg-black dark:bg-white text-white dark:text-black text-xs md:text-sm font-semibold rounded-lg whitespace-nowrap">すべて</button>
-                    <button className="px-3 py-1.5 bg-yt-light dark:bg-[#272727] text-black dark:text-white text-xs md:text-sm font-semibold rounded-lg whitespace-nowrap hover:bg-gray-200 dark:hover:bg-gray-700">関連動画</button>
-                </div>
-
-                <div className="flex flex-col space-y-3">
-                    {relatedVideos.length > 0 ? relatedVideos.map((video, idx) => <RelatedVideoCard key={`${video.id}-${idx}`} video={video} />) : !isLoading && <div className="text-center py-4 text-yt-light-gray">関連動画が見つかりません</div>}
-                </div>
-
-                <div className="block lg:hidden mt-8 border-t border-yt-spec-light-20 dark:border-yt-spec-20 pt-4">
-                    {showLiveChat ? (
-                        <div className="w-full h-[400px] bg-yt-white dark:bg-yt-light-black rounded-xl overflow-hidden border border-yt-spec-light-20 dark:border-yt-spec-20 relative">
-                             <iframe src={chatSrc} className="w-full h-full" frameBorder="0"></iframe>
-                             <div className="absolute bottom-2 right-2 z-20"><button onClick={() => window.open(chatSrc, 'LiveChat', 'width=400,height=600')} className="text-xs bg-yt-blue text-white px-2 py-1 rounded opacity-70 hover:opacity-100">別窓で開く</button></div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-lg font-bold">{commentCountDisplay}</h2>
-                            </div>
-                            {isCommentsLoading ? <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-yt-blue"></div></div> : (
-                                <div className="space-y-4">
-                                    {comments.map((comment, idx) => <CommentComponent key={`${comment.comment_id}-${idx}`} comment={comment} />)}
-                                    {commentsContinuation && (
-                                        <div ref={commentsLoaderRef} className="h-10 flex justify-center items-center">
-                                            {isFetchingMoreComments && <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-yt-blue"></div>}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
             </div>
             
