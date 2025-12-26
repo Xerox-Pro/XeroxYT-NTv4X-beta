@@ -16,6 +16,7 @@ import PlaylistPanel from '../components/PlaylistPanel';
 import RelatedVideoCard from '../components/RelatedVideoCard';
 import { LikeIcon, SaveIcon, DownloadIcon, DislikeIcon, ChevronRightIcon, TuneIcon, SpeedIcon, ChatIcon, ShareIcon } from '../components/icons/Icons';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import HlsVideoPlayer from '../components/HlsVideoPlayer';
 
 // Theater Icon Component
 const TheaterIcon: React.FC = () => (
@@ -536,10 +537,8 @@ const VideoPlayerPage: React.FC = () => {
     const hasCollaborators = videoDetails.collaborators && videoDetails.collaborators.length > 1;
     const collaboratorsList = videoDetails.collaborators || [];
     
-    // Official YouTube Chat Embed
     const chatSrc = `https://www.youtube.com/live_chat?v=${videoId}&embed_domain=${window.location.hostname}`;
 
-    // Total Comment Count Display
     const commentCountDisplay = videoDetails.commentCount ? videoDetails.commentCount + '件のコメント' : (comments.length > 0 ? `${comments.length.toLocaleString()}件以上のコメント` : 'コメント');
 
     return (
@@ -553,7 +552,15 @@ const VideoPlayerPage: React.FC = () => {
                         )
                     ) : (
                         getStreamUrl ? (
-                            <video ref={streamVideoRef} src={getStreamUrl} controls autoPlay playsInline loop={isLoop} className="w-full h-full" onError={(e) => console.error("Video Playback Error", e)}>お使いのブラウザは動画タグをサポートしていません。</video>
+                            // Use HLS Video Player for M3U8 support
+                            <HlsVideoPlayer 
+                                ref={streamVideoRef} 
+                                src={getStreamUrl} 
+                                controls={true} 
+                                autoPlay={true} 
+                                playsInline={true}
+                                className="w-full h-full"
+                            />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center text-white bg-black">
                                 {isStreamDataLoading ? <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div> : <div className="text-center"><p>ストリームが見つかりませんでした。</p><button onClick={fetchStreamDataIfNeeded} className="mt-2 text-blue-400 hover:underline">再試行</button></div>}
@@ -626,7 +633,6 @@ const VideoPlayerPage: React.FC = () => {
                                 <button className="flex items-center px-3 sm:px-4 h-full border-r border-yt-light-gray/20 gap-2"><LikeIcon /><span className="text-sm font-semibold">{videoDetails.likes}</span></button>
                                 <button className="px-3 h-full rounded-r-full"><DislikeIcon /></button>
                             </div>
-                            {/* Always allow chat toggle, useful for premieres or recent archives */}
                             <button onClick={() => setShowLiveChat(prev => !prev)} className={`flex items-center justify-center rounded-full w-9 h-9 transition-colors flex-shrink-0 ${showLiveChat ? 'bg-yt-light dark:bg-[#272727] text-yt-blue' : 'bg-yt-light dark:bg-[#272727] text-black dark:text-white hover:bg-[#e5e5e5] dark:hover:bg-[#3f3f3f]'}`} title="ライブチャット表示"><ChatIcon /></button>
                             
                             <button onClick={handleShareClick} className="flex items-center justify-center bg-yt-light dark:bg-[#272727] rounded-full w-9 h-9 hover:bg-[#e5e5e5] dark:hover:bg-[#3f3f3f] transition-colors flex-shrink-0" title="共有"><ShareIcon /></button>
@@ -671,7 +677,6 @@ const VideoPlayerPage: React.FC = () => {
                     </div>
 
                     <div className="mt-6 hidden lg:block">
-                        {/* Only show comments section if NOT live chat mode or if user manually toggles between them */}
                         {!showLiveChat && (
                             <>
                                 <div className="flex flex-col mb-6">
@@ -686,7 +691,6 @@ const VideoPlayerPage: React.FC = () => {
                                 {isCommentsLoading ? <div className="flex justify-center items-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-yt-blue"></div></div> : comments.length > 0 ? (
                                     <div className="space-y-4">
                                         {comments.map((comment, idx) => <CommentComponent key={`${comment.comment_id}-${idx}`} comment={comment} />)}
-                                        {/* Infinite Scroll Trigger for Comments */}
                                         {commentsContinuation && (
                                             <div ref={commentsLoaderRef} className="h-10 flex justify-center items-center">
                                                 {isFetchingMoreComments && <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-yt-blue"></div>}
@@ -700,9 +704,7 @@ const VideoPlayerPage: React.FC = () => {
                 </div>
             </div>
             
-            {/* Sidebar / Related Videos - Conditionally rendered below or aside based on layout */}
             <div className={`w-full flex-shrink-0 flex flex-col gap-4 pb-10 ${isTheaterMode ? 'mt-6' : 'lg:w-[350px] xl:w-[400px]'}`}>
-                {/* Live Chat Panel (Desktop) - Always show if showLiveChat is true, even if not strictly live (replays) */}
                 {showLiveChat && (
                     <div className="w-full h-[600px] bg-yt-white dark:bg-yt-light-black rounded-xl overflow-hidden border border-yt-spec-light-20 dark:border-yt-spec-20 relative hidden lg:block mb-4">
                         <div className="absolute inset-0 flex items-center justify-center bg-black/10 z-0"><p className="text-xs text-yt-light-gray">読み込み中...</p></div>
@@ -722,7 +724,6 @@ const VideoPlayerPage: React.FC = () => {
 
                 <div className="flex flex-col space-y-3">
                     {relatedVideos.length > 0 ? relatedVideos.map((video, idx) => <RelatedVideoCard key={`${video.id}-${idx}`} video={video} />) : !isLoading && <div className="text-center py-4 text-yt-light-gray">関連動画が見つかりません</div>}
-                    {/* Infinite Scroll for related videos could be added here if API supported clean pagination for secondary info */}
                 </div>
 
                 <div className="block lg:hidden mt-8 border-t border-yt-spec-light-20 dark:border-yt-spec-20 pt-4">

@@ -1,5 +1,5 @@
 
-import type { Video, VideoDetails, Channel, ChannelDetails, ApiPlaylist, Comment, PlaylistDetails, SearchResults, HomeVideo, HomePlaylist, ChannelHomeData, CommunityPost, CommentResponse } from '../types';
+import type { Video, VideoDetails, Channel, ChannelDetails, ApiPlaylist, Comment, PlaylistDetails, SearchResults, HomeVideo, HomePlaylist, ChannelHomeData, CommunityPost, CommentResponse, StreamData } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -10,6 +10,7 @@ dayjs.locale('ja');
 // --- CONSTANTS ---
 // Explicitly set the external API base URL
 export const API_BASE_URL = 'https://xeroxyt-nt-apiv1.onrender.com';
+const SIAWASE_API_BASE = "https://siawaseok-inv.sytes.net/api";
 
 // --- CACHING LOGIC ---
 const CACHE_TTL = 365 * 24 * 60 * 60 * 1000; 
@@ -184,21 +185,53 @@ export const linkify = (text: string): string => {
     });
 };
 
-// --- API FETCHER & PLAYER CONFIG ---
+// --- API FETCHER & PROXY CONFIG ---
+
+const smartFetch = async (url: string, options: RequestInit = {}): Promise<any> => {
+    // @ts-ignore - google object exists in GAS environment
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+        return new Promise((resolve, reject) => {
+            // @ts-ignore
+            google.script.run
+                .withSuccessHandler((res: any) => {
+                    if (res.status >= 200 && res.status < 300) {
+                        try {
+                            const data = JSON.parse(res.body);
+                            resolve({
+                                ok: true,
+                                json: async () => data,
+                                text: async () => res.body
+                            });
+                        } catch (e) {
+                             // Fallback for non-JSON response
+                             resolve({
+                                ok: true,
+                                json: async () => ({}),
+                                text: async () => res.body
+                            });
+                        }
+                    } else {
+                        reject(new Error(`GAS Fetch Failed: ${res.status} ${res.body}`));
+                    }
+                })
+                .withFailureHandler((err: any) => {
+                    reject(err);
+                })
+                .proxyApi(url);
+        });
+    } else {
+        // Fallback for local development
+        return fetch(url, options);
+    }
+};
 
 const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = 1) => {
     const headers = { ...options.headers };
-    
-    // Construct URL: https://xeroxyt-nt-apiv1.onrender.com/api/{endpoint}
-    // Endpoint should already contain query parameters if needed
+    // Normal endpoints use the original render API
     const url = `${API_BASE_URL}/api/${endpoint}`;
 
     try {
-        const response = await fetch(url, {
-            ...options,
-            headers
-        });
-        
+        const response = await fetch(url, { ...options, headers });
         const text = await response.text();
         let data;
         try {
@@ -208,10 +241,8 @@ const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = 1
         }
 
         if (!response.ok) {
-            // Retry on 429 (Too Many Requests) or 403 (Forbidden - sometimes temporary)
             if ((response.status === 429 || response.status === 403) && retries > 0) {
-                console.warn(`Retrying request to ${endpoint} due to ${response.status}...`);
-                await new Promise(r => setTimeout(r, 1500)); // Wait 1.5s
+                await new Promise(r => setTimeout(r, 1500));
                 return apiFetch(endpoint, options, retries - 1);
             }
             throw new Error(data.error || `Request failed for ${endpoint} with status ${response.status}`);
@@ -415,14 +446,90 @@ export interface StreamUrls {
 }
   
 export async function getStreamUrls(videoId: string): Promise<StreamUrls> {
-    return fetchWithCache(`stream-data-${videoId}`, async () => {
-        return await apiFetch(`stream/${videoId}`);
-    }, 6 * 60 * 60 * 1000);
+    const raw = await getRawStreamData(videoId);
+    return {
+        video_url: raw.streamingUrl || '',
+        audio_url: raw.audioOnlyFormat?.url
+    };
 }
 
-export async function getRawStreamData(videoId: string): Promise<any> {
-    return fetchWithCache(`stream-data-${videoId}`, async () => {
-        return await apiFetch(`stream/${videoId}`);
+export async function getRawStreamData(videoId: string): Promise<StreamData> {
+    return fetchWithCache(`stream-data-v2-${videoId}`, async () => {
+        // Use smartFetch for the external API via GAS proxy
+        const response = await smartFetch(`${SIAWASE_API_BASE}/stream/${videoId}/type2`);
+        const data = await response.json();
+        
+        // Map to StreamData structure
+        const result: StreamData = {
+            streamingUrl: null,
+            streamType: 'hls',
+            combinedFormats: [],
+            audioOnlyFormat: null,
+            separate1080p: null
+        };
+
+        // Extract HLS (m3u8) - Prioritize highest quality
+        if (data.m3u8) {
+            // Explicitly search from 1080p down to 144p to find the best quality stream
+            const qualities = ['1080p', '720p', '480p', '360p', '240p', '144p'];
+            for (const q of qualities) {
+                if (data.m3u8[q]?.url?.url) {
+                    result.streamingUrl = data.m3u8[q].url.url;
+                    break;
+                }
+            }
+            // Fallback if none of the standard keys matched but m3u8 exists
+            if (!result.streamingUrl) {
+                 const keys = Object.keys(data.m3u8);
+                 if(keys.length > 0) result.streamingUrl = data.m3u8[keys[0]].url?.url;
+            }
+        }
+
+        // Map Video/Audio URLs
+        if (data.videourl) {
+            // Audio (Use 144p audio or any available audio stream)
+            if (data.videourl['144p']?.audio?.url) {
+                result.audioOnlyFormat = {
+                    quality: '144p', 
+                    container: 'm4a',
+                    url: data.videourl['144p'].audio.url
+                };
+            } else {
+                const anyKey = Object.keys(data.videourl).find(k => data.videourl[k].audio?.url);
+                if (anyKey) {
+                    result.audioOnlyFormat = {
+                        quality: anyKey,
+                        container: 'm4a',
+                        url: data.videourl[anyKey].audio.url
+                    };
+                }
+            }
+
+            // 1080p Separate
+            if (data.videourl['1080p']) {
+                result.separate1080p = {
+                    video: { quality: '1080p', container: 'mp4', url: data.videourl['1080p'].video.url },
+                    audio: data.videourl['1080p'].audio ? { quality: 'best', container: 'm4a', url: data.videourl['1080p'].audio.url } : null
+                };
+            }
+
+            // Other formats
+            Object.keys(data.videourl).forEach(key => {
+                if (key === '1080p') return;
+                
+                const item = data.videourl[key];
+                if (item.video?.url) {
+                    result.combinedFormats.push({
+                        quality: key,
+                        container: 'mp4',
+                        url: item.video.url,
+                        isVideoOnly: !!item.audio?.url
+                    });
+                }
+            });
+        }
+
+        return result;
     }, 6 * 60 * 60 * 1000);
 }
 
@@ -444,7 +551,9 @@ export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<
 
 export async function getChannelHome(channelId: string): Promise<ChannelHomeData> {
     return fetchWithCache(`channel-home-${channelId}`, async () => {
-        return await apiFetch(`channel-home-proxy?id=${channelId}`);
+        // Use smartFetch for the external API via GAS proxy
+        const response = await smartFetch(`${SIAWASE_API_BASE}/channel/${channelId}`);
+        return await response.json();
     });
 }
 
@@ -462,13 +571,10 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
 }
 
 export async function getRecommendedVideos(): Promise<{ videos: Video[] }> {
-    // Force usage of Search API for Home Feed since 'fvideo' endpoint is unreliable/blocked.
-    // Querying for generic recommendation keywords.
     return fetchWithCache('home-feed-videos', async () => {
         const params = new URLSearchParams();
         params.set('q', 'おすすめ'); 
         params.set('page', '1');
-        // 'rating' usually gives popular/relevant results for general queries
         params.set('sort_by', 'rating'); 
         
         try {
@@ -487,8 +593,6 @@ export async function getRecommendedVideos(): Promise<{ videos: Video[] }> {
 export async function searchVideos(query: string, pageToken = '1', channelId?: string, sortBy?: string): Promise<SearchResults> {
     const cacheKey = `search-${query}-${pageToken}-${channelId || 'all'}-${sortBy || 'relevance'}`;
     return fetchWithCache(cacheKey, async () => {
-        // Build URL using URLSearchParams to ensure correct encoding and format
-        // Result: api/search?q={query}&page={page}
         const params = new URLSearchParams();
         params.set('q', query);
         params.set('page', pageToken);
@@ -566,7 +670,6 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                         if (!vm) return null;
                         
                         const title = vm.title?.content || '';
-                        // Default avatar if missing in payload
                         const avatar = vm.leadingAccessory?.avatarViewModel?.image?.sources?.[0]?.url || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
                         let cId = '';
                         const browseEndpoint = vm.rendererContext?.commandContext?.onTap?.innertubeCommand?.browseEndpoint || 
@@ -621,36 +724,28 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
         const rawDescription = secondary?.description?.text || '';
         const processedDescription = linkify(rawDescription).replace(/\n/g, '<br />');
         
-        // Extract comment count from basic_info.comment_count
         let commentCountStr = '';
         if (basic?.comment_count) {
             commentCountStr = formatJapaneseNumber(basic.comment_count);
         }
 
-        // 再生回数のロジック改善: 数値(basic) > テキスト(primary)
         let viewCount = '視聴回数不明';
         const isLive = basic?.is_live ?? false;
 
-        // 1. 数値データがあればそれをフォーマットして使う（一番信頼できる）
-        // ライブ配信中は視聴者数になることがあるので、isLiveの場合はテキスト優先
         if (basic?.view_count && !isLive) {
             viewCount = formatJapaneseNumber(basic.view_count) + '回視聴';
         } 
-        // 2. なければ primary_info のテキストを使う (ライブはこちら)
         else if (primary?.view_count?.text) {
             const text = primary.view_count.text;
-            // "人が視聴中" が含まれていればそのまま（ライブ）
             if (text.includes('視聴中') || text.includes('watching')) {
                 viewCount = text;
             } else {
                 viewCount = formatJapaneseNumber(text) + '回視聴';
             }
         }
-        // 3. ショートのビューカウント
         else if (primary?.short_view_count?.text) {
              viewCount = formatJapaneseNumber(primary.short_view_count.text) + '回視聴';
         }
-        // 4. フォールバックで数値があるなら（ライブでもテキストが取れなければ）
         else if (basic?.view_count) {
              viewCount = formatJapaneseNumber(basic.view_count) + (isLive ? '人が視聴中' : '回視聴');
         }
@@ -681,20 +776,11 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
 
 export async function getComments(videoId: string, sortBy: 'top' | 'newest' = 'top', continuation?: string): Promise<CommentResponse> {
     const cacheKey = `comments-${videoId}-${sortBy}-${continuation || 'init'}`;
-    // Short cache for comments
     return fetchWithCache(cacheKey, async () => {
         const params = new URLSearchParams();
         params.set('id', videoId);
-        
-        // Only set sort_by if it is 'newest'. 
-        // The example for 'top' (evaluation order) did not include the sort_by param.
-        if (sortBy === 'newest') {
-            params.set('sort_by', 'newest');
-        }
-        
-        if (continuation) {
-            params.set('continuation', continuation);
-        }
+        if (sortBy === 'newest') params.set('sort_by', 'newest');
+        if (continuation) params.set('continuation', continuation);
         
         const data = await apiFetch(`comments?${params.toString()}`);
         return {
@@ -777,14 +863,9 @@ export async function getChannelShorts(channelId: string, sort: 'latest' | 'popu
     return fetchWithCache(`channel-shorts-${channelId}-${sort}-${pageToken}`, async () => {
         const page = parseInt(pageToken, 10);
         let url = `channel-shorts?id=${channelId}&sort=${sort}&page=${page}`;
-        
         const data = await apiFetch(url);
-        
         const items = Array.isArray(data) ? data : (data.videos || []);
-        
         const videos = items.map(mapYoutubeiVideoToVideo).filter((v: any): v is Video => v !== null) ?? [];
-        
-        // Simple logic for next page token since we use numeric page count for this proxy
         const hasMore = videos.length > 0;
         return { videos, nextPageToken: hasMore ? String(page + 1) : undefined };
     }, 5 * 60 * 1000); 
@@ -793,7 +874,6 @@ export async function getChannelShorts(channelId: string, sort: 'latest' | 'popu
 export async function getChannelLive(channelId: string): Promise<{ videos: Video[] }> {
     return fetchWithCache(`channel-live-${channelId}`, async () => {
         const data = await apiFetch(`channel-live?id=${channelId}`);
-        // Similar handling for list of videos
         const items = Array.isArray(data.videos) ? data.videos : [];
         const videos = items.map(mapYoutubeiVideoToVideo).filter((v): v is Video => v !== null) ?? [];
         return { videos };
@@ -806,13 +886,10 @@ export async function getChannelCommunity(channelId: string): Promise<{ posts: C
         const rawPosts = data.posts || [];
 
         const posts: CommunityPost[] = rawPosts.map((post: any) => {
-            // Map attachment types
             let attachment = null;
             if (post.attachment) {
                 const type = post.attachment.type;
                 if (type === 'BackstageImage') {
-                    // Sometimes images are in post.attachment.images or directly on attachment
-                    // Assuming 'images' array of strings/urls
                     const images = post.attachment.images || (post.attachment.image ? [post.attachment.image] : []);
                     attachment = { type: 'BackstageImage', images };
                 } else if (type === 'PostMultiImage') {

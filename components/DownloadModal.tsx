@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { CloseIcon, DownloadIcon } from './icons/Icons';
@@ -57,9 +58,10 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose, streamDa
                                         </a>
                                     )}
 
-                                    {/* Combined Formats (360p, 720p, etc.) */}
+                                    {/* Combined Formats (360p, 720p, etc.) or Adaptive Video Only */}
                                     {streamData.combinedFormats && streamData.combinedFormats.map((format: any, index: number) => {
                                         const quality = format.quality || 'Unknown';
+                                        const isVideoOnly = format.isVideoOnly;
                                         return (
                                             <a 
                                                 key={index}
@@ -69,7 +71,7 @@ const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose, streamDa
                                                 className="flex items-center justify-between p-3 rounded-lg bg-yt-light dark:bg-yt-dark-gray hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors group"
                                                 onClick={onClose}
                                             >
-                                                <span className="font-semibold text-black dark:text-white">{quality} (音声あり)</span>
+                                                <span className="font-semibold text-black dark:text-white">{quality} {isVideoOnly ? '(映像のみ)' : '(音声あり)'}</span>
                                                 <span className="text-xs bg-black/10 dark:bg-white/10 px-2 py-1 rounded text-black dark:text-white group-hover:bg-white group-hover:text-black transition-colors">MP4</span>
                                             </a>
                                         );

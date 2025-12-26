@@ -175,6 +175,7 @@ export interface StreamFormat {
     quality: string;
     container: string;
     url: string;
+    isVideoOnly?: boolean;
 }
 
 export interface StreamData {
