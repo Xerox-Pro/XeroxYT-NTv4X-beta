@@ -101,7 +101,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const fetchUserDataInternal = async (id: string, pw: string | undefined, isAutoLoad = false) => {
         if (!id || !pw) return;
         try {
-            const url = buildUrl('login', { userid: id, pw: pw });
+            // Correct endpoint for reading data: readalluserdate
+            const url = buildUrl('readalluserdate', { userid: id, pw: pw });
             const res = await fetch(url);
             if (!res.ok) throw new Error('Failed to fetch user data');
             const data = await res.json();
