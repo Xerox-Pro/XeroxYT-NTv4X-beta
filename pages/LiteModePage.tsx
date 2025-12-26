@@ -161,8 +161,11 @@ const LiteModePage: React.FC = () => {
             return;
         }
 
-        // Use direct URL (no proxy wrapper) as requested
-        const videoSrc = url;
+        // Use proxy to avoid CORS errors
+        const PROXY_PREFIX = 'https://corsproxy.io/?';
+        const videoSrc = url.startsWith('http') && !url.includes(PROXY_PREFIX) 
+            ? `${PROXY_PREFIX}${encodeURIComponent(url)}` 
+            : url;
 
         const video = document.createElement('video');
         video.setAttribute('data-v-a03ccfac', ''); // Matches requested attribute

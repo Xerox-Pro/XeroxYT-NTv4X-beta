@@ -11,6 +11,8 @@ interface HlsVideoPlayerProps {
   playsInline?: boolean;
 }
 
+const PROXY_PREFIX = 'https://corsproxy.io/?';
+
 const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
   ({ src, type, autoPlay = true, controls = true, className, playsInline = true }, ref) => {
     const internalVideoRef = useRef<HTMLVideoElement>(null);
@@ -56,7 +58,12 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         });
         hlsRef.current = hls;
         
-        hls.loadSource(src);
+        // Use proxy to avoid CORS errors
+        const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
+            ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
+            : src;
+
+        hls.loadSource(proxiedSrc);
         hls.attachMedia(video);
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -73,6 +80,15 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
         // src is set via prop on the video tag
+        // Note: Safari usually handles CORS better for HLS or needs the proxy too.
+        // We apply proxy here as well for consistency if needed, but native implementation often requires direct access 
+        // or specific headers. Often proxied URLs work fine in Safari too.
+        const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
+            ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
+            : src;
+            
+        video.src = proxiedSrc;
+
         if (autoPlay) {
           video.addEventListener('loadedmetadata', () => {
             video.play().catch(e => console.warn("Autoplay prevented:", e));
@@ -104,7 +120,6 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
           )}
           <video
               ref={internalVideoRef}
-              src={src}
               controls={controls}
               autoPlay={autoPlay}
               className="w-full h-full object-contain"
