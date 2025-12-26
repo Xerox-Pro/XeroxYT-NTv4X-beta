@@ -681,62 +681,103 @@ export async function getExternalRelatedVideos(videoId: string): Promise<Video[]
 }
 
 export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
-    return fetchWithCache(`video-details-v3-${videoId}`, async () => {
-        // Use smartFetch for the specific custom API endpoint
-        const response = await smartFetch(`https://siawaseok.duckdns.org/api/video2/${videoId}`);
-        const data = await response.json();
-        
-        if (!data || !data.id) {
+    return fetchWithCache(`video-details-v4-${videoId}`, async () => {
+        // Use the new endpoint structure with API Mirrors
+        const data = await apiFetch(`video?id=${videoId}`);
+
+        if (!data) {
              throw new Error('動画の読み込みに失敗しました。');
         }
 
-        const author = data.author || {};
+        // Map basic info
+        const title = data.primary_info?.title?.text || 'No Title';
+        const views = data.primary_info?.view_count?.view_count?.text || '';
+        const uploadedAt = data.primary_info?.relative_date?.text || data.primary_info?.published?.text || '';
         
-        // Map Related Videos
-        const relatedRaw = data['Related-videos']?.relatedVideos || [];
-        const relatedVideos: Video[] = relatedRaw.map((item: any) => ({
-            id: item.videoId,
-            title: item.title,
-            thumbnailUrl: item.thumbnail, // Base64 or URL
-            duration: item.duration || '',
-            isoDuration: '',
-            channelName: item.channelName || item.author?.name || '',
-            channelId: '', // Not provided
-            channelAvatarUrl: item.channelAvatar || '',
-            views: item.viewCountText || '',
-            uploadedAt: item.publishedTimeText || '',
-            descriptionSnippet: '',
-            isLive: false
-        }));
+        // Map Author
+        const owner = data.secondary_info?.owner;
+        const channelName = owner?.author?.name || 'Unknown';
+        const channelId = owner?.author?.id || '';
+        const channelAvatarUrl = owner?.author?.thumbnails?.[0]?.url || '';
+        const subscriberCount = owner?.subscriber_count?.text || '';
 
-        // Parse description
-        // Use formatted if available, otherwise text
-        const description = data.description?.formatted || data.description?.text || '';
+        // Map Description
+        const description = data.secondary_info?.description?.text || '';
+        
+        // Map Likes
+        const likes = data.basic_info?.like_count ? String(data.basic_info.like_count) : '';
+
+        // Map Related Videos (watch_next_feed)
+        const relatedVideos: Video[] = [];
+        const rawRelated = data.watch_next_feed || [];
+        
+        for (const item of rawRelated) {
+            if (item.type === 'LockupView' && item.content_type === 'VIDEO') {
+                 const rId = item.content_id;
+                 const rTitle = item.metadata?.title?.text || '';
+                 
+                 // Extract Metadata rows
+                 const rows = item.metadata?.metadata?.metadata_rows || [];
+                 let rChannelName = '';
+                 let rViews = '';
+                 let rUploadedAt = '';
+                 
+                 if (rows.length > 0 && rows[0].metadata_parts?.length > 0) {
+                     rChannelName = rows[0].metadata_parts[0].text?.text || '';
+                 }
+                 if (rows.length > 1 && rows[1].metadata_parts?.length > 0) {
+                     rViews = rows[1].metadata_parts[0].text?.text || '';
+                     if (rows[1].metadata_parts.length > 1) {
+                         rUploadedAt = rows[1].metadata_parts[1].text?.text || '';
+                     }
+                 }
+
+                 const rThumb = item.content_image?.image?.[0]?.url;
+                 const rDuration = item.content_image?.overlays?.[0]?.badges?.[0]?.text || '';
+
+                 if (rId) {
+                     relatedVideos.push({
+                         id: rId,
+                         title: rTitle,
+                         thumbnailUrl: rThumb || `https://i.ytimg.com/vi/${rId}/mqdefault.jpg`,
+                         duration: rDuration,
+                         isoDuration: '', // Not provided in this format
+                         channelName: rChannelName,
+                         channelId: '', 
+                         channelAvatarUrl: '', // Not always available in related feed
+                         views: rViews,
+                         uploadedAt: rUploadedAt,
+                         descriptionSnippet: '',
+                         isLive: false
+                     });
+                 }
+            }
+        }
 
         const details: VideoDetails = {
-            id: data.id,
-            title: data.title,
-            thumbnailUrl: data.thumbnail,
+            id: videoId,
+            title: title,
+            thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
             duration: '', 
             isoDuration: '',
-            channelName: author.name || 'Unknown',
-            channelId: author.id || '',
-            channelAvatarUrl: author.thumbnail || '',
-            views: data.views || '',
-            uploadedAt: data.relativeDate || '',
+            channelName: channelName,
+            channelId: channelId,
+            channelAvatarUrl: channelAvatarUrl,
+            views: views,
+            uploadedAt: uploadedAt,
             description: description,
-            likes: data.likes || '',
+            likes: likes,
             dislikes: '0',
             commentCount: '', 
             channel: {
-                id: author.id || '',
-                name: author.name || 'Unknown',
-                avatarUrl: author.thumbnail || '',
-                subscriberCount: author.subscribers || ''
+                id: channelId,
+                name: channelName,
+                avatarUrl: channelAvatarUrl,
+                subscriberCount: subscriberCount
             },
-            collaborators: author.collaborators || [],
+            collaborators: [], 
             relatedVideos: relatedVideos,
-            isLive: false, 
+            isLive: false,
         };
         return details;
     });

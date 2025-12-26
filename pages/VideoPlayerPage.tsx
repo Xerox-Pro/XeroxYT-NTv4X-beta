@@ -35,31 +35,12 @@ const VideoPlayerPage: React.FC = () => {
     // Get pre-loaded video data from navigation state if available
     const initialVideo = location.state?.video as Video | undefined;
 
-    const [videoDetails, setVideoDetails] = useState<VideoDetails | null>(() => {
-        if (initialVideo && initialVideo.id === videoId) {
-            return {
-                ...initialVideo,
-                description: '',
-                likes: '',
-                dislikes: '',
-                channel: {
-                    id: initialVideo.channelId,
-                    name: initialVideo.channelName,
-                    avatarUrl: initialVideo.channelAvatarUrl,
-                    subscriberCount: ''
-                },
-                relatedVideos: [],
-                isLive: initialVideo.isLive || false
-            } as VideoDetails;
-        }
-        return null;
-    });
-
+    const [videoDetails, setVideoDetails] = useState<VideoDetails | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
     const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
     
     // If we have initial data, don't show full loading skeleton immediately
-    const [isLoading, setIsLoading] = useState(!videoDetails);
+    const [isLoading, setIsLoading] = useState(true);
     
     const [isCommentsLoading, setIsCommentsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -246,33 +227,52 @@ const VideoPlayerPage: React.FC = () => {
 
     useEffect(() => {
         let isMounted = true;
+        
+        // Immediate State Update for UI responsiveness if we navigated with state
+        if (initialVideo && initialVideo.id === videoId) {
+             setVideoDetails({
+                ...initialVideo,
+                description: '',
+                likes: '',
+                dislikes: '',
+                channel: {
+                    id: initialVideo.channelId,
+                    name: initialVideo.channelName,
+                    avatarUrl: initialVideo.channelAvatarUrl,
+                    subscriberCount: ''
+                },
+                relatedVideos: [],
+                isLive: initialVideo.isLive || false
+            } as VideoDetails);
+            setIsLoading(false); // Optimistic load
+        } else {
+            // Reset if no initial data
+            setVideoDetails(null);
+            setIsLoading(true);
+        }
+        
+        // Reset secondary states
+        setError(null);
+        setComments([]);
+        setCommentsContinuation(undefined);
+        setRelatedVideos([]);
+        setStreamData(null);
+        setIsDownloadModalOpen(false);
+        setIsCommentsLoading(true);
+        setShowLiveChat(false); 
+        setPlaybackSpeed(1.0);
+        setTransposeLevel(0);
+        setCommentSort('top'); 
+        window.scrollTo(0, 0);
+
         const fetchVideoData = async () => {
             if (!videoId) return;
-            if (isMounted) {
-                // Only show loading if we don't have initial data to display
-                if (!initialVideo || initialVideo.id !== videoId) {
-                    setIsLoading(true);
-                    setVideoDetails(null);
-                }
-                setError(null);
-                setComments([]);
-                setCommentsContinuation(undefined);
-                setRelatedVideos([]);
-                setStreamData(null);
-                setIsDownloadModalOpen(false);
-                setIsCommentsLoading(true);
-                setShowLiveChat(false); 
-                setPlaybackSpeed(1.0);
-                setTransposeLevel(0);
-                setCommentSort('top'); 
-                window.scrollTo(0, 0);
-            }
 
             getVideoDetails(videoId)
                 .then(details => {
                     if (isMounted) {
                         // Merge logic: If API returns vague views, prefer the initial detailed view count
-                        if (initialVideo && initialVideo.views && (details.views === '0回視聴' || details.views === '視聴回数不明' || details.views === '0回' || details.views.startsWith('0'))) {
+                        if (initialVideo && initialVideo.id === videoId && initialVideo.views && (details.views === '0回視聴' || details.views === '視聴回数不明' || details.views === '0回' || details.views.startsWith('0'))) {
                              details.views = initialVideo.views;
                         }
 
@@ -288,10 +288,14 @@ const VideoPlayerPage: React.FC = () => {
                 })
                 .catch(err => {
                     if (isMounted) {
-                        // If we have initial data, show that instead of error initially, maybe show toast
-                        if (!videoDetails) {
-                            setError(err.message || '動画の読み込みに失敗しました。');
-                        }
+                        // If we have initial data (videoDetails is set optimistically), just log error, don't break UI
+                        // Unless videoDetails is null
+                        setVideoDetails(prev => {
+                            if (!prev) {
+                                setError(err.message || '動画の読み込みに失敗しました。');
+                            }
+                            return prev;
+                        });
                         setIsLoading(false);
                     }
                 });
@@ -330,7 +334,7 @@ const VideoPlayerPage: React.FC = () => {
         };
         fetchVideoData();
         return () => { isMounted = false; };
-    }, [videoId, addVideoToHistory]); // Remove initialVideo from deps to prevent re-fetching on nav state change
+    }, [videoId, addVideoToHistory]); // Remove initialVideo from deps, use it only inside effect logic
     
     // Comments Infinite Scroll
     const fetchMoreComments = useCallback(async () => {
