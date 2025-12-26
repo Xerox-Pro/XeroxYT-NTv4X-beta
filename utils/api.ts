@@ -33,6 +33,12 @@ export const API_BASE_URL = currentApiBase;
 
 const SIAWASE_API_BASE = "https://siawaseok-inv.sytes.net/api";
 
+// Helper to get proxied video URL
+export const getProxiedStreamUrl = (url: string): string => {
+    if (!url) return '';
+    return `${currentApiBase}/api/video-proxy?url=${encodeURIComponent(url)}`;
+};
+
 // --- CACHING LOGIC ---
 const CACHE_TTL = 365 * 24 * 60 * 60 * 1000; 
 

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { usePreference } from '../contexts/PreferenceContext';
-import { getRawStreamData, getPlayerConfig, API_BASE_URL } from '../utils/api';
+import { getRawStreamData, getPlayerConfig, API_BASE_URL, getProxiedStreamUrl } from '../utils/api';
 
 const LiteModePage: React.FC = () => {
     const { toggleLiteMode } = usePreference();
@@ -161,11 +161,8 @@ const LiteModePage: React.FC = () => {
             return;
         }
 
-        // Use proxy to avoid CORS errors
-        const PROXY_PREFIX = 'https://corsproxy.io/?';
-        const videoSrc = url.startsWith('http') && !url.includes(PROXY_PREFIX) 
-            ? `${PROXY_PREFIX}${encodeURIComponent(url)}` 
-            : url;
+        // Use video proxy instead of direct link or corsproxy
+        const videoSrc = getProxiedStreamUrl(url);
 
         const video = document.createElement('video');
         video.setAttribute('data-v-a03ccfac', ''); // Matches requested attribute

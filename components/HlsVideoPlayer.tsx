@@ -11,8 +11,6 @@ interface HlsVideoPlayerProps {
   playsInline?: boolean;
 }
 
-const PROXY_PREFIX = 'https://corsproxy.io/?';
-
 const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
   ({ src, type, autoPlay = true, controls = true, className, playsInline = true }, ref) => {
     const internalVideoRef = useRef<HTMLVideoElement>(null);
@@ -28,12 +26,6 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
 
       // Reset error on src change
       setError(null);
-
-      // Use proxy to avoid CORS errors
-      // Note: We use the proxy for both HLS manifests and direct MP4s to ensure playback reliability
-      const proxiedSrc = src.startsWith('http') && !src.includes(PROXY_PREFIX) 
-          ? `${PROXY_PREFIX}${encodeURIComponent(src)}` 
-          : src;
 
       const handleHlsError = (_event: any, data: any) => {
           if (data.fatal) {
@@ -64,7 +56,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         });
         hlsRef.current = hls;
         
-        hls.loadSource(proxiedSrc);
+        hls.loadSource(src); // Direct SRC, parent handles proxy
         hls.attachMedia(video);
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -80,7 +72,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
-        video.src = proxiedSrc;
+        video.src = src; // Direct SRC
 
         if (autoPlay) {
           video.addEventListener('loadedmetadata', () => {
@@ -94,7 +86,7 @@ const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
         });
       } else {
           // Attempt to play anyway (MP4 fallback)
-          video.src = proxiedSrc;
+          video.src = src; // Direct SRC
           if (autoPlay) {
              video.play().catch(() => {});
           }

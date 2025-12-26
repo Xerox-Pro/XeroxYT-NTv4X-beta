@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 // FIX: Use named imports for react-router-dom components and hooks.
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getExternalRelatedVideos, getRawStreamData } from '../utils/api';
+import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getExternalRelatedVideos, getRawStreamData, getProxiedStreamUrl } from '../utils/api';
 import type { VideoDetails, Video, Comment, Channel, CommentResponse } from '../types';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { useHistory } from '../contexts/HistoryContext';
@@ -457,10 +457,7 @@ const VideoPlayerPage: React.FC = () => {
         }
         
         if (url) {
-            const PROXY_PREFIX = 'https://corsproxy.io/?';
-            return url.startsWith('http') && !url.includes(PROXY_PREFIX) 
-                ? `${PROXY_PREFIX}${encodeURIComponent(url)}` 
-                : url;
+            return getProxiedStreamUrl(url);
         }
         return null;
     }, [streamData]);
