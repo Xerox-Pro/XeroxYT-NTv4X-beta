@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 // FIX: Use named imports for react-router-dom components and hooks.
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getExternalRelatedVideos, getRawStreamData, getProxiedStreamUrl } from '../utils/api';
+import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getRawStreamData, getProxiedStreamUrl } from '../utils/api';
 import type { VideoDetails, Video, Comment, Channel, CommentResponse } from '../types';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { useHistory } from '../contexts/HistoryContext';
@@ -327,15 +327,6 @@ const VideoPlayerPage: React.FC = () => {
             };
             
             loadComments();
-
-            getExternalRelatedVideos(videoId)
-                .then(externalRelated => {
-                    if (isMounted && externalRelated && externalRelated.length > 0) {
-                        // Append or replace if main API failed
-                        setRelatedVideos(prev => prev.length > 0 ? prev : externalRelated);
-                    }
-                })
-                .catch(extErr => console.warn("Failed to fetch external related videos", extErr));
         };
         fetchVideoData();
         return () => { isMounted = false; };
@@ -717,6 +708,34 @@ const VideoPlayerPage: React.FC = () => {
             
             {isPlaylistModalOpen && <PlaylistModal isOpen={isPlaylistModalOpen} onClose={() => setIsPlaylistModalOpen(false)} video={videoForPlaylistModal} />}
             <DownloadModal isOpen={isDownloadModalOpen} onClose={() => setIsDownloadModalOpen(false)} streamData={streamData} isLoading={isStreamDataLoading} onRetry={fetchStreamDataIfNeeded}/>
+            
+            {/* Playlist Sidebar */}
+            {currentPlaylist && playlistVideos.length > 0 && (
+                <div className="w-full lg:w-[400px] xl:w-[450px] flex-shrink-0 mt-6 lg:mt-0">
+                    <PlaylistPanel
+                        playlist={currentPlaylist}
+                        videos={playlistVideos}
+                        currentVideoId={videoId || ''}
+                        isShuffle={isShuffle}
+                        isLoop={isLoop}
+                        toggleShuffle={toggleShuffle}
+                        toggleLoop={toggleLoop}
+                        onReorder={handlePlaylistReorder}
+                        authorName={currentPlaylist.authorName}
+                    />
+                </div>
+            )}
+
+            {/* Related Videos (Sidebar on large screens) */}
+            {!currentPlaylist && (
+                <div className="w-full lg:w-[350px] xl:w-[400px] flex-shrink-0 mt-6 lg:mt-0">
+                    <div className="flex flex-col space-y-3">
+                        {relatedVideos.map((video, index) => (
+                            <RelatedVideoCard key={`${video.id}-${index}`} video={video} />
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

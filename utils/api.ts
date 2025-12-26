@@ -649,158 +649,94 @@ export async function searchVideos(query: string, pageToken = '1', channelId?: s
 }
 
 export async function getExternalRelatedVideos(videoId: string): Promise<Video[]> {
+    // This function is kept for backward compatibility if called elsewhere, but VideoPlayerPage now uses getVideoDetails directly
     const cacheKey = `ext-related-${videoId}`;
     return fetchWithCache(cacheKey, async () => {
         try {
             const response = await fetch(`https://siawaseok.duckdns.org/api/video2/${videoId}`);
             if (!response.ok) return [];
             
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                 return [];
-            }
-
             const data = await response.json();
-            const items = Array.isArray(data) ? data : (data.items || data.related_videos || []);
+            const items = data['Related-videos']?.relatedVideos || [];
             
-            return items.map((item: any) => {
-                if (item.id && item.thumbnailUrl && item.channelName) {
-                    return item as Video;
-                }
-                return mapYoutubeiVideoToVideo(item);
-            }).filter((v: any): v is Video => v !== null);
+            return items.map((item: any) => ({
+                id: item.videoId,
+                title: item.title,
+                thumbnailUrl: item.thumbnail,
+                duration: item.duration || '',
+                isoDuration: '',
+                channelName: item.channelName || '',
+                channelId: '',
+                channelAvatarUrl: item.channelAvatar || '',
+                views: item.viewCountText || '',
+                uploadedAt: item.publishedTimeText || '',
+                descriptionSnippet: '',
+                isLive: false
+            }));
         } catch (e) {
-            console.warn("Failed to fetch external related videos silently:", e);
+            console.warn("Failed to fetch external related videos:", e);
             return [];
         }
     }, 0);
 }
 
 export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
-    return fetchWithCache(`video-details-${videoId}`, async () => {
-        const data = await apiFetch(`video?id=${videoId}`);
+    return fetchWithCache(`video-details-v3-${videoId}`, async () => {
+        // Use smartFetch for the specific custom API endpoint
+        const response = await smartFetch(`https://siawaseok.duckdns.org/api/video2/${videoId}`);
+        const data = await response.json();
         
-        if (data.playability_status?.status !== 'OK' && !data.primary_info) {
-            throw new Error(data.playability_status?.reason ?? 'この動画は利用できません。');
-        }
-        const primary = data.primary_info;
-        const secondary = data.secondary_info;
-        const basic = data.basic_info;
-
-        let collaborators: Channel[] = [];
-        let channelId = secondary?.owner?.author?.id ?? '';
-        let channelName = secondary?.owner?.author?.name ?? '不明なチャンネル';
-        let channelAvatar = secondary?.owner?.author?.thumbnails?.[0]?.url ?? 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
-        const subscriberCount = secondary?.owner?.subscriber_count?.text ?? '非公開';
-
-        if (channelName === 'N/A' || !channelName) {
-            try {
-                const listItems = secondary?.owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel?.customContent?.listViewModel?.listItems;
-                if (Array.isArray(listItems)) {
-                    collaborators = listItems.map((item: any) => {
-                        const vm = item.listItemViewModel;
-                        if (!vm) return null;
-                        
-                        const title = vm.title?.content || '';
-                        const avatar = vm.leadingAccessory?.avatarViewModel?.image?.sources?.[0]?.url || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
-                        let cId = '';
-                        const browseEndpoint = vm.rendererContext?.commandContext?.onTap?.innertubeCommand?.browseEndpoint || 
-                                               vm.title?.commandRuns?.[0]?.onTap?.innertubeCommand?.browseEndpoint ||
-                                               vm.leadingAccessory?.avatarViewModel?.endpoint?.innertubeCommand?.browseEndpoint;
-                        if (browseEndpoint?.browseId) cId = browseEndpoint.browseId;
-                        const subText = vm.subtitle?.content || '';
-                        const subCountMatch = subText.match(/チャンネル登録者数\s+(.+)$/);
-                        const subCount = subCountMatch ? subCountMatch[1] : '';
-
-                        return {
-                            id: cId,
-                            name: title,
-                            avatarUrl: avatar,
-                            subscriberCount: subCount
-                        } as Channel;
-                    }).filter((c: any): c is Channel => c !== null && c.id !== '');
-
-                    if (collaborators.length > 0) {
-                        channelId = collaborators[0].id;
-                        channelName = collaborators[0].name;
-                        channelAvatar = collaborators[0].avatarUrl;
-                    }
-                }
-            } catch (e) { console.error("Failed to parse collaborators:", e); }
+        if (!data || !data.id) {
+             throw new Error('動画の読み込みに失敗しました。');
         }
 
-        const channel: Channel = {
-            id: channelId,
-            name: channelName,
-            avatarUrl: channelAvatar,
-            subscriberCount: subscriberCount,
-        };
+        const author = data.author || {};
         
-        let rawRelated = data.watch_next_feed || [];
-        if (!rawRelated.length) rawRelated = data.secondary_info?.watch_next_feed || [];
-        if (!rawRelated.length) rawRelated = data.related_videos || [];
-        if (!rawRelated.length) {
-            const overlays = data.player_overlays || data.playerOverlays;
-            if (overlays) {
-                const endScreen = overlays.end_screen || overlays.endScreen;
-                if (endScreen && Array.isArray(endScreen.results)) {
-                    rawRelated = endScreen.results;
-                }
-            }
-        }
+        // Map Related Videos
+        const relatedRaw = data['Related-videos']?.relatedVideos || [];
+        const relatedVideos: Video[] = relatedRaw.map((item: any) => ({
+            id: item.videoId,
+            title: item.title,
+            thumbnailUrl: item.thumbnail, // Base64 or URL
+            duration: item.duration || '',
+            isoDuration: '',
+            channelName: item.channelName || item.author?.name || '',
+            channelId: '', // Not provided
+            channelAvatarUrl: item.channelAvatar || '',
+            views: item.viewCountText || '',
+            uploadedAt: item.publishedTimeText || '',
+            descriptionSnippet: '',
+            isLive: false
+        }));
 
-        const relatedVideos = rawRelated
-            .map(mapYoutubeiVideoToVideo)
-            .filter((v): v is Video => v !== null && v.id.length === 11);
-
-        const rawDescription = secondary?.description?.text || '';
-        const processedDescription = linkify(rawDescription).replace(/\n/g, '<br />');
-        
-        let commentCountStr = '';
-        if (basic?.comment_count) {
-            commentCountStr = formatJapaneseNumber(basic.comment_count);
-        }
-
-        let viewCount = '視聴回数不明';
-        const isLive = basic?.is_live ?? false;
-
-        if (basic?.view_count && !isLive) {
-            viewCount = formatJapaneseNumber(basic.view_count) + '回視聴';
-        } 
-        else if (primary?.view_count?.text) {
-            const text = primary.view_count.text;
-            if (text.includes('視聴中') || text.includes('watching')) {
-                viewCount = text;
-            } else {
-                viewCount = formatJapaneseNumber(text) + '回視聴';
-            }
-        }
-        else if (primary?.short_view_count?.text) {
-             viewCount = formatJapaneseNumber(primary.short_view_count.text) + '回視聴';
-        }
-        else if (basic?.view_count) {
-             viewCount = formatJapaneseNumber(basic.view_count) + (isLive ? '人が視聴中' : '回視聴');
-        }
+        // Parse description
+        // Use formatted if available, otherwise text
+        const description = data.description?.formatted || data.description?.text || '';
 
         const details: VideoDetails = {
-            id: videoId,
-            thumbnailUrl: basic?.thumbnail?.[0]?.url ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            duration: formatDuration(basic?.duration ?? 0),
-            isoDuration: `PT${basic?.duration ?? 0}S`,
-            title: primary?.title?.text ?? '無題の動画',
-            channelName: channel.name,
-            channelId: channel.id,
-            channelAvatarUrl: channel.avatarUrl,
-            views: viewCount,
-            uploadedAt: formatJapaneseDate(primary?.relative_date?.text ?? ''),
-            description: processedDescription,
-            likes: formatJapaneseNumber(basic?.like_count ?? 0),
+            id: data.id,
+            title: data.title,
+            thumbnailUrl: data.thumbnail,
+            duration: '', 
+            isoDuration: '',
+            channelName: author.name || 'Unknown',
+            channelId: author.id || '',
+            channelAvatarUrl: author.thumbnail || '',
+            views: data.views || '',
+            uploadedAt: data.relativeDate || '',
+            description: description,
+            likes: data.likes || '',
             dislikes: '0',
-            commentCount: commentCountStr,
-            channel: channel,
-            collaborators: collaborators.length > 0 ? collaborators : undefined,
+            commentCount: '', 
+            channel: {
+                id: author.id || '',
+                name: author.name || 'Unknown',
+                avatarUrl: author.thumbnail || '',
+                subscriberCount: author.subscribers || ''
+            },
+            collaborators: author.collaborators || [],
             relatedVideos: relatedVideos,
-            isLive: isLive,
+            isLive: false, 
         };
         return details;
     });
