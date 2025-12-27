@@ -219,11 +219,12 @@ const VideoPlayerPage: React.FC = () => {
         }
     }, [videoId, streamData, isStreamDataLoading]);
 
+    // Auto-fetch stream data if default mode is 'stream'
     useEffect(() => {
-        if (defaultPlayerMode === 'stream') {
+        if (defaultPlayerMode === 'stream' && videoId) {
             fetchStreamDataIfNeeded();
         }
-    }, [defaultPlayerMode, fetchStreamDataIfNeeded]);
+    }, [defaultPlayerMode, videoId, fetchStreamDataIfNeeded]);
 
     useEffect(() => {
         let isMounted = true;
@@ -436,26 +437,11 @@ const VideoPlayerPage: React.FC = () => {
         return `${src}?${params}`;
     }, [videoDetails, playerParams, isLoop, isShuffle, playlistVideos, shuffledVideos, videoId]);
 
-    const getStreamUrl = useMemo(() => {
-        if (!streamData) return null;
-        let url = null;
-        
-        // Prioritize streamUrl (usually HLS)
-        if (streamData.streamingUrl) {
-            url = streamData.streamingUrl;
-        } 
-        // Fallback to direct MP4s (360p preferred)
-        else if (streamData.combinedFormats) {
-             const format360 = streamData.combinedFormats.find((f: any) => f.quality === '360p');
-             if (format360) url = format360.url;
-             else if (streamData.combinedFormats.length > 0) url = streamData.combinedFormats[0].url;
-        }
-        
-        if (url) {
-            return getProxiedStreamUrl(url);
-        }
-        return null;
-    }, [streamData]);
+    const invidiousStreamUrl = useMemo(() => {
+        if (!videoId) return '';
+        const targetUrl = `https://invidious.nerdvpn.de/watch?v=${videoId}`;
+        return getProxiedStreamUrl(targetUrl);
+    }, [videoId]);
 
     const updateUrlParams = (key: string, value: string | null) => {
         const newSearchParams = new URLSearchParams(searchParams);
@@ -506,21 +492,8 @@ const VideoPlayerPage: React.FC = () => {
             );
         }
 
-        if (defaultPlayerMode === 'stream' && streamVideoRef.current) {
-            let finalRate = speed;
-            if (transpose !== 0) {
-                const pitchFactor = Math.pow(2, transpose / 12);
-                finalRate = speed * pitchFactor;
-                if ('preservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).preservesPitch = false;
-                else if ('mozPreservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).mozPreservesPitch = false;
-                else if ('webkitPreservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).webkitPreservesPitch = false;
-            } else {
-                if ('preservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).preservesPitch = preservesPitch;
-                else if ('mozPreservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).mozPreservesPitch = preservesPitch;
-                else if ('webkitPreservesPitch' in streamVideoRef.current) (streamVideoRef.current as any).webkitPreservesPitch = preservesPitch;
-            }
-            streamVideoRef.current.playbackRate = finalRate;
-        }
+        // Stream mode (iframe) generally doesn't support direct playback rate control via this interface
+        // unless postMessage is supported by Invidious iframe (usually not standard like YT API)
     };
 
     const handleSpeedChange = (val: number) => applyPlaybackSettings(val, transposeLevel);
@@ -556,20 +529,25 @@ const VideoPlayerPage: React.FC = () => {
                             <iframe ref={iframeRef} src={iframeSrc} key={iframeSrc} title={videoDetails.title} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="w-full h-full"></iframe>
                         )
                     ) : (
-                        getStreamUrl ? (
-                            // Use HLS Video Player for M3U8 support
+                        streamData?.streamingUrl ? (
                             <HlsVideoPlayer 
-                                ref={streamVideoRef} 
-                                src={getStreamUrl} 
-                                type="application/x-mpegURL" 
-                                controls={true} 
-                                autoPlay={true} 
-                                playsInline={true}
+                                src={getProxiedStreamUrl(streamData.streamingUrl)} 
+                                autoPlay 
                                 className="w-full h-full"
                             />
                         ) : (
-                            <div className="w-full h-full flex items-center justify-center text-white bg-black">
-                                {isStreamDataLoading ? <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div> : <div className="text-center"><p>ストリームが見つかりませんでした。</p><button onClick={fetchStreamDataIfNeeded} className="mt-2 text-blue-400 hover:underline">再試行</button></div>}
+                            <div className="w-full h-full flex flex-col items-center justify-center text-white gap-4 bg-black">
+                                {isStreamDataLoading ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-white"></div>
+                                        <p>ストリームを準備中...</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p>ストリームの読み込みに失敗しました。</p>
+                                        <button onClick={fetchStreamDataIfNeeded} className="px-4 py-2 bg-yt-blue rounded-full">再試行</button>
+                                    </>
+                                )}
                             </div>
                         )
                     )}

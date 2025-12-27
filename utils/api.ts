@@ -486,83 +486,50 @@ export async function getStreamUrls(videoId: string): Promise<StreamUrls> {
 }
 
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
-    return fetchWithCache(`stream-data-v2-${videoId}`, async () => {
-        // Use smartFetch for the external API via GAS proxy
-        const response = await smartFetch(`${SIAWASE_API_BASE}/stream/${videoId}/type2`);
-        const data = await response.json();
+    // New endpoint structure using apiFetch which cycles mirrors
+    return fetchWithCache(`stream-data-v3-${videoId}`, async () => {
+        const data = await apiFetch(`stream?id=${videoId}`);
         
-        // Map to StreamData structure
         const result: StreamData = {
             streamingUrl: null,
-            streamType: 'hls',
+            streamType: 'mp4',
             combinedFormats: [],
             audioOnlyFormat: null,
             separate1080p: null
         };
 
-        // Extract HLS (m3u8) - Prioritize highest quality
-        if (data.m3u8) {
-            // Explicitly search from 1080p down to 144p to find the best quality stream
-            const qualities = ['1080p', '720p', '480p', '360p', '240p', '144p'];
-            for (const q of qualities) {
-                if (data.m3u8[q]?.url?.url) {
-                    result.streamingUrl = data.m3u8[q].url.url;
-                    break;
-                }
-            }
-            // Fallback if none of the standard keys matched but m3u8 exists
-            if (!result.streamingUrl) {
-                 const keys = Object.keys(data.m3u8);
-                 if(keys.length > 0) result.streamingUrl = data.m3u8[keys[0]].url?.url;
-            }
+        // Extract 360p from formats
+        const formats = Array.isArray(data.formats) ? data.formats : [];
+        const format360 = formats.find((f: any) => f.quality === '360p');
+        
+        // Prioritize 360p as requested, fallback to API provided streamingUrl
+        if (format360 && format360.url) {
+            result.streamingUrl = format360.url;
+        } else if (data.streamingUrl) {
+            result.streamingUrl = data.streamingUrl;
+        } else if (formats.length > 0) {
+            result.streamingUrl = formats[0].url;
         }
 
-        // Map Video/Audio URLs
-        if (data.videourl) {
-            // Audio (Use 144p audio or any available audio stream)
-            if (data.videourl['144p']?.audio?.url) {
-                result.audioOnlyFormat = {
-                    quality: '144p', 
-                    container: 'm4a',
-                    url: data.videourl['144p'].audio.url
-                };
-            } else {
-                const anyKey = Object.keys(data.videourl).find(k => data.videourl[k].audio?.url);
-                if (anyKey) {
-                    result.audioOnlyFormat = {
-                        quality: anyKey,
-                        container: 'm4a',
-                        url: data.videourl[anyKey].audio.url
-                    };
-                }
-            }
+        // Map formats for download modal
+        result.combinedFormats = formats.map((f: any) => ({
+            quality: f.quality || 'Unknown',
+            container: f.container || 'mp4',
+            url: f.url,
+            isVideoOnly: false // Combined formats typically have audio
+        }));
 
-            // 1080p Separate
-            if (data.videourl['1080p']) {
-                result.separate1080p = {
-                    video: { quality: '1080p', container: 'mp4', url: data.videourl['1080p'].video.url },
-                    audio: data.videourl['1080p'].audio ? { quality: 'best', container: 'm4a', url: data.videourl['1080p'].audio.url } : null
-                };
-            }
-
-            // Other formats
-            Object.keys(data.videourl).forEach(key => {
-                if (key === '1080p') return;
-                
-                const item = data.videourl[key];
-                if (item.video?.url) {
-                    result.combinedFormats.push({
-                        quality: key,
-                        container: 'mp4',
-                        url: item.video.url,
-                        isVideoOnly: !!item.audio?.url
-                    });
-                }
-            });
+        // Audio
+        if (data.audioUrl) {
+            result.audioOnlyFormat = {
+                quality: 'best',
+                container: 'm4a', // Assuming standard audio container
+                url: data.audioUrl
+            };
         }
 
         return result;
-    }, 6 * 60 * 60 * 1000);
+    }, 60 * 60 * 1000); // 1 hour cache
 }
 
 export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<ChannelDetails>): Video => {

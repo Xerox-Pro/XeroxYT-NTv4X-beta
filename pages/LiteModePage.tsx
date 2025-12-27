@@ -94,9 +94,9 @@ const LiteModePage: React.FC = () => {
         try {
             if (actionType === 'embed') {
                 setActiveView('player');
-                const key = await fetchKey();
-                const fixedKey = key.replace(/\?autoplay=0/, '?autoplay=1');
-                const embedUrl = `https://www.youtubeeducation.com/embed/${vId}${fixedKey}`;
+                // Construct Invidious URL and proxy it as requested
+                const targetUrl = `https://invidious.nerdvpn.de/watch?v=${vId}`;
+                const embedUrl = getProxiedStreamUrl(targetUrl);
                 
                 if (playerContainerRef.current) {
                     playerContainerRef.current.innerHTML = `<iframe width="100%" height="100%" src="${embedUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="aspect-ratio: 16/9; border-radius: 8px;"></iframe>`;
