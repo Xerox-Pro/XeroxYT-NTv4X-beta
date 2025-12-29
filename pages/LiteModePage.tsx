@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { usePreference } from '../contexts/PreferenceContext';
-import { getRawStreamData, getPlayerConfig, API_BASE_URL, getProxiedStreamUrl } from '../utils/api';
+import { getRawStreamData, getPlayerConfig, API_BASE_URL } from '../utils/api';
 
 const LiteModePage: React.FC = () => {
     const { toggleLiteMode } = usePreference();
@@ -14,13 +14,11 @@ const LiteModePage: React.FC = () => {
     const [streamData, setStreamData] = useState<any | null>(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     
-    // UI State
     const [activeView, setActiveView] = useState<'none' | 'player' | 'download'>('none');
     
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const progressInterval = useRef<any>(null);
 
-    // Online/Offline Listener
     useEffect(() => {
         const handleOnline = () => setIsOnline(true);
         const handleOffline = () => setIsOnline(false);
@@ -56,29 +54,12 @@ const LiteModePage: React.FC = () => {
         setProgress(100);
     };
 
-    // Use centralized getPlayerConfig which has 1-day cache
-    const fetchKey = async () => {
-        try {
-            const params = await getPlayerConfig();
-            return params ? params.trim() : '?autoplay=1';
-        } catch (e) {
-            console.error("Failed to fetch key", e);
-            return '?autoplay=1';
-        }
-    };
-
     const handleAction = async (actionType: 'embed' | 'stream' | 'download') => {
         const vId = extractYouTubeVideoId(urlInput);
         if (!vId) {
             setError('無効なYouTubeリンクです。');
             setActiveView('none');
             return;
-        }
-
-        if (actionType === 'embed' && !isOnline) {
-            // Check if we have cached config, if so we might try, but iframe usually needs network for the video content
-            // unless browser cached it.
-            // We will allow it but warn.
         }
 
         if (vId !== videoId) {
@@ -94,9 +75,8 @@ const LiteModePage: React.FC = () => {
         try {
             if (actionType === 'embed') {
                 setActiveView('player');
-                // Construct Invidious URL and proxy it as requested
-                const targetUrl = `https://invidious.nerdvpn.de/watch?v=${vId}`;
-                const embedUrl = getProxiedStreamUrl(targetUrl);
+                // Construct Invidious URL and use direct link as requested
+                const embedUrl = `https://invidious.nerdvpn.de/embed/${vId}`;
                 
                 if (playerContainerRef.current) {
                     playerContainerRef.current.innerHTML = `<iframe width="100%" height="100%" src="${embedUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="aspect-ratio: 16/9; border-radius: 8px;"></iframe>`;
@@ -104,20 +84,17 @@ const LiteModePage: React.FC = () => {
             } else {
                 let data = streamData;
                 
-                // If we don't have data, try to fetch (will use localStorage cache if available)
                 if (!data || vId !== videoId) {
                     try {
                         data = await getRawStreamData(vId);
                         setStreamData(data);
                     } catch (fetchErr) {
-                        // Offline and not cached
                         throw new Error('オフラインです。キャッシュされたデータが見つかりませんでした。');
                     }
                 }
 
                 if (actionType === 'stream') {
                     setActiveView('player');
-                    // Small delay to ensure DOM update
                     setTimeout(() => createStreamPlayer(data, playerContainerRef.current), 0);
                 } else if (actionType === 'download') {
                     setActiveView('download');
@@ -141,53 +118,34 @@ const LiteModePage: React.FC = () => {
         
         container.innerHTML = '';
 
-        if (!isOnline && !data) {
-             // Redundant check handled by handleAction catch block, but kept for safety
-            setError('ストリーミング再生はオンライン時のみ、またはキャッシュがある場合のみ利用可能です。');
-            return;
-        }
-
-        // Prioritize streamingUrl (M3U8) as requested
         let url = data.streamingUrl; 
         
         if (!url && data.combinedFormats) {
-            // Fallback
             const format = data.combinedFormats.find((f: any) => f.quality === '360p' || f.quality === '720p');
             if (format) url = format.url;
         }
 
         if (!url) {
-            setError('ストリーミング可能な動画ソース(360p/720p/HLS)が見つかりませんでした。');
+            setError('ストリーミング可能な動画ソースが見つかりませんでした。');
             return;
         }
 
-        // Use video proxy instead of direct link or corsproxy
-        const videoSrc = getProxiedStreamUrl(url);
+        // Use direct URL instead of proxy as requested
+        const videoSrc = url;
 
         const video = document.createElement('video');
-        video.setAttribute('data-v-a03ccfac', ''); // Matches requested attribute
+        video.setAttribute('data-v-a03ccfac', ''); 
         video.controls = true;
         video.autoplay = true;
         video.style.width = "100%";
         video.style.borderRadius = "8px";
         video.style.aspectRatio = "16/9";
         video.style.backgroundColor = "#000";
-        // Explicitly set src and type order as requested
         video.src = videoSrc;
         video.setAttribute('type', 'application/x-mpegURL');
         
         container.appendChild(video);
-        
         video.play().catch(e => console.warn("Autoplay prevented:", e));
-        
-        if (!isOnline) {
-             const warning = document.createElement('p');
-             warning.style.color = '#d32f2f';
-             warning.style.fontSize = '0.8rem';
-             warning.style.marginTop = '5px';
-             warning.innerText = '※オフラインモード: 動画ファイル自体がブラウザにキャッシュされていない場合、再生できない可能性があります。';
-             container.appendChild(warning);
-        }
     };
 
     const handlePaste = async () => {
@@ -200,18 +158,14 @@ const LiteModePage: React.FC = () => {
     return (
         <div className="min-h-screen bg-[#f7f8fa] flex flex-col items-center justify-center p-4 font-sans text-[#333]">
             <div className="bg-white shadow-[0_4px_32px_rgba(0,0,0,0.08)] rounded-[18px] p-8 md:p-10 w-full max-w-[680px] text-center relative overflow-hidden">
-                
-                {/* Offline Badge */}
                 {!isOnline && (
                     <div className="absolute top-0 left-0 right-0 bg-gray-500 text-white text-xs font-bold py-1">
                         オフラインモード (キャッシュ利用可能)
                     </div>
                 )}
-
                 <div className="text-[2.6rem] font-bold text-[#3c3e4e] mb-2 tracking-wide mt-2">XeroxYT LiteV2</div>
                 <div className="text-[#667085] text-[1.05rem] mb-2">動画を高画質・高速で再生・ダウンロード</div>
                 <div className="text-[#667085] text-sm mb-8">ストリーミング・ダウンロードは360p固定になっています</div>
-                
                 <div className="flex flex-col md:flex-row gap-2 mb-4 w-full">
                     <input 
                         type="text" 
@@ -225,7 +179,6 @@ const LiteModePage: React.FC = () => {
                         <button onClick={() => { setUrlInput(''); setActiveView('none'); setError(null); }} className="bg-[#e0e3eb] border-none rounded-[8px] px-4 py-2 text-[1.1rem] cursor-pointer text-[#555] hover:bg-[#ccc] hover:text-black">×</button>
                     </div>
                 </div>
-
                 <div className="flex flex-wrap justify-center gap-4 mt-6">
                     <button 
                         onClick={() => handleAction('embed')} 
@@ -248,29 +201,17 @@ const LiteModePage: React.FC = () => {
                         {isLoading && loadingAction === 'download' ? `処理中... ${progress}%` : 'ダウンロード'}
                     </button>
                 </div>
-
                 {error && <div className="text-[#d32f2f] mt-4 text-[0.97em] bg-red-50 p-2 rounded">{error}</div>}
-
-                {/* Player Container */}
-                <div 
-                    ref={playerContainerRef} 
-                    className={`mt-6 w-full ${activeView === 'player' ? 'block' : 'hidden'}`}
-                ></div>
-
-                {/* Download Links */}
+                <div ref={playerContainerRef} className={`mt-6 w-full ${activeView === 'player' ? 'block' : 'hidden'}`}></div>
                 {activeView === 'download' && streamData && (
                     <div className="mt-8 text-left">
-                        <h3 className="text-center text-[#3c3e4e] text-xl font-bold mb-4">Download Links { !isOnline && "(Cached)" }</h3>
+                        <h3 className="text-center text-[#3c3e4e] text-xl font-bold mb-4">Download Links</h3>
                         <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto">
-                            {/* Video Links */}
-                            {/* 1080p */}
                             {streamData.separate1080p?.video?.url && (
                                 <a href={streamData.separate1080p.video.url} target="_blank" rel="noreferrer" className="block bg-[#f7f8fa] border-[1.5px] border-[#e0e3eb] rounded-[8px] p-3 text-[#333] font-medium hover:bg-[#e9ecf0] transition-colors break-all">
                                     Download Video 1080p (映像のみ) (MP4)
                                 </a>
                             )}
-                            
-                            {/* Combined Formats (720p, 360p, etc.) */}
                             {streamData.combinedFormats && streamData.combinedFormats.map((format: any, index: number) => {
                                 const quality = format.quality || 'Unknown';
                                 const url = format.url;
@@ -281,8 +222,6 @@ const LiteModePage: React.FC = () => {
                                     </a>
                                 );
                             })}
-                            
-                            {/* Audio Link */}
                             {streamData.audioOnlyFormat?.url && (
                                 <>
                                     <h4 className="mt-4 font-bold text-[#333]">オーディオ (音声のみ)</h4>
@@ -294,11 +233,8 @@ const LiteModePage: React.FC = () => {
                         </div>
                     </div>
                 )}
-
                 <div className="mt-12 pt-6 border-t border-[#e0e3eb]">
-                    <button onClick={toggleLiteMode} className="text-[#667085] hover:text-[#333] underline cursor-pointer text-sm">
-                        通常モードに戻る
-                    </button>
+                    <button onClick={toggleLiteMode} className="text-[#667085] hover:text-[#333] underline cursor-pointer text-sm">通常モードに戻る</button>
                 </div>
             </div>
         </div>

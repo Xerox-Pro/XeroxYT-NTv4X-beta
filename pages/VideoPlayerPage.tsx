@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-// FIX: Use named imports for react-router-dom components and hooks.
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getRawStreamData, getProxiedStreamUrl } from '../utils/api';
+import { getVideoDetails, getPlayerConfig, getComments, getVideosByIds, getRawStreamData } from '../utils/api';
 import type { VideoDetails, Video, Comment, Channel, CommentResponse } from '../types';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { useHistory } from '../contexts/HistoryContext';
@@ -18,7 +17,6 @@ import { LikeIcon, SaveIcon, DownloadIcon, DislikeIcon, ChevronRightIcon, TuneIc
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import HlsVideoPlayer from '../components/HlsVideoPlayer';
 
-// Theater Icon Component
 const TheaterIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" focusable="false" className="fill-current text-black dark:text-white">
         <path d="M19 6H5c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H5V8h14v8z"/>
@@ -32,14 +30,12 @@ const VideoPlayerPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const playlistId = searchParams.get('list');
 
-    // Get pre-loaded video data from navigation state if available
     const initialVideo = location.state?.video as Video | undefined;
 
     const [videoDetails, setVideoDetails] = useState<VideoDetails | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
     const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
     
-    // If we have initial data, don't show full loading skeleton immediately
     const [isLoading, setIsLoading] = useState(true);
     
     const [isCommentsLoading, setIsCommentsLoading] = useState(false);
@@ -51,44 +47,30 @@ const VideoPlayerPage: React.FC = () => {
     const collaboratorMenuRef = useRef<HTMLDivElement>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     
-    // Comments Pagination
     const [commentsContinuation, setCommentsContinuation] = useState<string | undefined>(undefined);
     const [isFetchingMoreComments, setIsFetchingMoreComments] = useState(false);
     
-    // Playback Controls
     const [isControlsOpen, setIsControlsOpen] = useState(false);
     const controlsRef = useRef<HTMLDivElement>(null);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
     const [transposeLevel, setTransposeLevel] = useState(0); 
-    const [preservesPitch, setPreservesPitch] = useState(true);
     
-    // Live Chat State
     const [showLiveChat, setShowLiveChat] = useState(false);
-    
-    // Theater Mode State
     const [isTheaterMode, setIsTheaterMode] = useState(false);
-
-    // Comment Sort State
     const [commentSort, setCommentSort] = useState<'top' | 'newest'>('top');
-    
-    // State for player params string instead of YT.Player object
     const [playerParams, setPlayerParams] = useState<string>('');
 
     const [isShuffle, setIsShuffle] = useState(searchParams.get('shuffle') === '1');
     const [isLoop, setIsLoop] = useState(searchParams.get('loop') === '1');
 
-    // Stable shuffle state
     const [shuffledVideos, setShuffledVideos] = useState<Video[]>([]);
     const shuffleSeedRef = useRef<string | null>(null);
 
-    // Streaming State
     const { defaultPlayerMode, setDefaultPlayerMode } = usePreference();
     const [streamData, setStreamData] = useState<any>(null);
     const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
     const [isStreamDataLoading, setIsStreamDataLoading] = useState(false);
     
-    const streamVideoRef = useRef<HTMLVideoElement>(null);
-
     const { isSubscribed, subscribe, unsubscribe } = useSubscription();
     const { addVideoToHistory } = useHistory();
     const { playlists, reorderVideosInPlaylist } = usePlaylist();
@@ -108,7 +90,6 @@ const VideoPlayerPage: React.FC = () => {
             try {
                 const paramsString = await getPlayerConfig();
                 const params = new URLSearchParams(paramsString);
-                // Ensure autoplay is enabled
                 params.set('autoplay', '1');
                 setPlayerParams(params.toString());
             } catch (error) {
@@ -134,28 +115,20 @@ const VideoPlayerPage: React.FC = () => {
         };
     }, []);
 
-    // Listen to IFrame messages for Playlist Navigation Sync
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
-            // Check origin to ensure safety (optional but recommended if you know specific origins)
-            // YouTube iframe API often posts from https://www.youtube.com or similar
             if (event.origin !== "https://www.youtube.com" && event.origin !== "https://www.youtubeeducation.com") return;
 
             try {
                 const data = JSON.parse(event.data);
-                // The 'infoDelivery' event contains updated video data when the player moves to a new video
                 if (data.event === 'infoDelivery' && data.info?.videoData?.videoId) {
                     const newId = data.info.videoData.videoId;
                     if (newId && newId !== videoId) {
-                        // Construct new URL preserving query params (like list, shuffle, loop)
-                        // This allows the React app to catch up with the Iframe's internal playlist navigation
                         const newParams = new URLSearchParams(searchParams);
                         navigate(`/watch/${newId}?${newParams.toString()}`, { replace: true });
                     }
                 }
-            } catch (e) {
-                // Ignore parsing errors for other message types
-            }
+            } catch (e) {}
         };
 
         window.addEventListener('message', handleMessage);
@@ -180,7 +153,6 @@ const VideoPlayerPage: React.FC = () => {
         fetchPlaylistVideos();
     }, [currentPlaylist]);
 
-    // Stable Shuffle Logic
     useEffect(() => {
         if (!isShuffle || !playlistId) {
             setShuffledVideos([]);
@@ -219,7 +191,6 @@ const VideoPlayerPage: React.FC = () => {
         }
     }, [videoId, streamData, isStreamDataLoading]);
 
-    // Auto-fetch stream data if default mode is 'stream'
     useEffect(() => {
         if (defaultPlayerMode === 'stream' && videoId) {
             fetchStreamDataIfNeeded();
@@ -229,7 +200,6 @@ const VideoPlayerPage: React.FC = () => {
     useEffect(() => {
         let isMounted = true;
         
-        // Immediate State Update for UI responsiveness if we navigated with state
         if (initialVideo && initialVideo.id === videoId) {
              setVideoDetails({
                 ...initialVideo,
@@ -245,14 +215,12 @@ const VideoPlayerPage: React.FC = () => {
                 relatedVideos: [],
                 isLive: initialVideo.isLive || false
             } as VideoDetails);
-            setIsLoading(false); // Optimistic load
+            setIsLoading(false);
         } else {
-            // Reset if no initial data
             setVideoDetails(null);
             setIsLoading(true);
         }
         
-        // Reset secondary states
         setError(null);
         setComments([]);
         setCommentsContinuation(undefined);
@@ -272,7 +240,6 @@ const VideoPlayerPage: React.FC = () => {
             getVideoDetails(videoId)
                 .then(details => {
                     if (isMounted) {
-                        // Merge logic: If API returns vague views, prefer the initial detailed view count
                         if (initialVideo && initialVideo.id === videoId && initialVideo.views && (details.views === '0回視聴' || details.views === '視聴回数不明' || details.views === '0回' || details.views.startsWith('0'))) {
                              details.views = initialVideo.views;
                         }
@@ -289,8 +256,6 @@ const VideoPlayerPage: React.FC = () => {
                 })
                 .catch(err => {
                     if (isMounted) {
-                        // If we have initial data (videoDetails is set optimistically), just log error, don't break UI
-                        // Unless videoDetails is null
                         setVideoDetails(prev => {
                             if (!prev) {
                                 setError(err.message || '動画の読み込みに失敗しました。');
@@ -301,18 +266,15 @@ const VideoPlayerPage: React.FC = () => {
                     }
                 });
 
-            // Comments fetch with auto-pagination for at least 50 comments
             const loadComments = async () => {
                 try {
                     let accComments: Comment[] = [];
                     let token: string | undefined = undefined;
                     
-                    // First page
                     const res1 = await getComments(videoId, 'top');
                     accComments = res1.comments;
                     token = res1.continuation;
 
-                    // Fetch more if needed and available (Target: 50 items)
                     while (accComments.length < 50 && token && isMounted) {
                         const resNext: CommentResponse = await getComments(videoId, 'top', token);
                         if (!resNext.comments || resNext.comments.length === 0) break;
@@ -335,9 +297,8 @@ const VideoPlayerPage: React.FC = () => {
         };
         fetchVideoData();
         return () => { isMounted = false; };
-    }, [videoId, addVideoToHistory]); // Remove initialVideo from deps, use it only inside effect logic
+    }, [videoId, addVideoToHistory]); 
     
-    // Comments Infinite Scroll
     const fetchMoreComments = useCallback(async () => {
         if (!videoId || !commentsContinuation || isFetchingMoreComments) return;
         setIsFetchingMoreComments(true);
@@ -354,7 +315,6 @@ const VideoPlayerPage: React.FC = () => {
 
     const commentsLoaderRef = useInfiniteScroll(fetchMoreComments, !!commentsContinuation, isFetchingMoreComments);
 
-    // Handle Comment Sort Change
     const handleCommentSortChange = (newSort: 'top' | 'newest') => {
         if (newSort === commentSort || !videoId) return;
         setCommentSort(newSort);
@@ -397,24 +357,18 @@ const VideoPlayerPage: React.FC = () => {
         if (!params.includes('origin')) params += `&origin=${encodeURIComponent(window.location.origin)}`;
         if (!params.includes('autoplay')) params += '&autoplay=1';
 
-        // --- Playlist Auto-play Logic (Native Iframe) ---
         const activeList = isShuffle ? shuffledVideos : playlistVideos;
         
         if (activeList.length > 0) {
             const currentIndex = activeList.findIndex(v => v.id === videoId);
             if (currentIndex !== -1) {
-                // Construct the queue: Videos coming AFTER the current one
                 const nextVideos = activeList.slice(currentIndex + 1);
-                
                 let playlistIds: string[] = [];
                 
                 if (isLoop) {
-                    // Loop mode: Play Next -> Then Previous (wrap around) -> Then Current (complete circle)
                     const prevVideos = activeList.slice(0, currentIndex);
-                    // Slice to avoid URL length limits (approx 100 videos max safe limit)
                     playlistIds = [...nextVideos, ...prevVideos, activeList[currentIndex]].map(v => v.id).slice(0, 100);
                 } else {
-                    // Normal mode: Just play next videos
                     playlistIds = nextVideos.map(v => v.id).slice(0, 100);
                 }
 
@@ -423,7 +377,6 @@ const VideoPlayerPage: React.FC = () => {
                 }
             }
         } else {
-            // Single Video Context Loop
             if (isLoop) {
                 params += `&playlist=${videoDetails.id}`;
             }
@@ -432,16 +385,9 @@ const VideoPlayerPage: React.FC = () => {
         if (isLoop) {
              if (!params.includes('loop=1')) params += '&loop=1';
         }
-        // -----------------------------------------------
 
         return `${src}?${params}`;
     }, [videoDetails, playerParams, isLoop, isShuffle, playlistVideos, shuffledVideos, videoId]);
-
-    const invidiousStreamUrl = useMemo(() => {
-        if (!videoId) return '';
-        const targetUrl = `https://invidious.nerdvpn.de/watch?v=${videoId}`;
-        return getProxiedStreamUrl(targetUrl);
-    }, [videoId]);
 
     const updateUrlParams = (key: string, value: string | null) => {
         const newSearchParams = new URLSearchParams(searchParams);
@@ -480,7 +426,6 @@ const VideoPlayerPage: React.FC = () => {
         alert('リンクをコピーしました');
     };
     
-    // Apply Playback Speed & Pitch logic
     const applyPlaybackSettings = (speed: number, transpose: number) => {
         setPlaybackSpeed(speed);
         setTransposeLevel(transpose);
@@ -491,9 +436,6 @@ const VideoPlayerPage: React.FC = () => {
                 JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [targetSpeed] }), '*'
             );
         }
-
-        // Stream mode (iframe) generally doesn't support direct playback rate control via this interface
-        // unless postMessage is supported by Invidious iframe (usually not standard like YT API)
     };
 
     const handleSpeedChange = (val: number) => applyPlaybackSettings(val, transposeLevel);
@@ -514,15 +456,11 @@ const VideoPlayerPage: React.FC = () => {
 
     const hasCollaborators = videoDetails.collaborators && videoDetails.collaborators.length > 1;
     const collaboratorsList = videoDetails.collaborators || [];
-    
-    const chatSrc = `https://www.youtube.com/live_chat?v=${videoId}&embed_domain=${window.location.hostname}`;
-
     const commentCountDisplay = videoDetails.commentCount ? videoDetails.commentCount + '件のコメント' : (comments.length > 0 ? `${comments.length.toLocaleString()}件以上のコメント` : 'コメント');
 
     return (
         <div className={`flex flex-col gap-6 mx-auto pt-2 md:pt-6 px-4 md:px-6 justify-center ${isTheaterMode ? 'w-full max-w-full' : 'max-w-[1750px] lg:flex-row'}`}>
             <div className={`flex-1 min-w-0 ${isTheaterMode ? 'max-w-full' : 'max-w-full'}`}>
-                {/* Video Player Container */}
                 <div className={`w-full bg-yt-black rounded-xl overflow-hidden shadow-lg relative z-10 ${isTheaterMode ? 'h-[75vh]' : 'aspect-video'}`}>
                     {defaultPlayerMode === 'player' ? (
                         playerParams && videoId && (
@@ -531,7 +469,7 @@ const VideoPlayerPage: React.FC = () => {
                     ) : (
                         streamData?.streamingUrl ? (
                             <HlsVideoPlayer 
-                                src={getProxiedStreamUrl(streamData.streamingUrl)} 
+                                src={streamData.streamingUrl} 
                                 autoPlay 
                                 className="w-full h-full"
                             />
@@ -691,7 +629,6 @@ const VideoPlayerPage: React.FC = () => {
             {isPlaylistModalOpen && <PlaylistModal isOpen={isPlaylistModalOpen} onClose={() => setIsPlaylistModalOpen(false)} video={videoForPlaylistModal} />}
             <DownloadModal isOpen={isDownloadModalOpen} onClose={() => setIsDownloadModalOpen(false)} streamData={streamData} isLoading={isStreamDataLoading} onRetry={fetchStreamDataIfNeeded}/>
             
-            {/* Playlist Sidebar */}
             {currentPlaylist && playlistVideos.length > 0 && (
                 <div className="w-full lg:w-[400px] xl:w-[450px] flex-shrink-0 mt-6 lg:mt-0">
                     <PlaylistPanel
@@ -708,7 +645,6 @@ const VideoPlayerPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Related Videos (Sidebar on large screens) */}
             {!currentPlaylist && (
                 <div className="w-full lg:w-[350px] xl:w-[400px] flex-shrink-0 mt-6 lg:mt-0">
                     <div className="flex flex-col space-y-3">

@@ -137,7 +137,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const res = await smartFetch(url);
         const json = await res.json();
 
-        // The API returns the raw JSON file content directly or wrapped in `data`
         let items: any[] = [];
         if (json && Array.isArray(json.data)) {
             items = json.data;
@@ -152,13 +151,54 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const newShortsHistory: any[] = [];
         const newSubscriptions: any[] = [];
 
+        // Collect icons from 'channel' category (from icondata param)
+        const channelIcons: string[] = items
+            .filter(i => i.category === 'channel')
+            .map(i => i.icon)
+            .filter(Boolean);
+
         const seenIds = {
             video: new Set(),
             shorts: new Set(),
             sub: new Set()
         };
 
-        // Process in reverse to restore order if API appends new items to end
+        const subItems = items.filter(i => i.category === 'subscription').reverse();
+        const reversedIcons = [...channelIcons].reverse();
+        let subIndexCounter = 0;
+
+        for (const item of subItems) {
+            try {
+                if (item.id && !seenIds.sub.has(item.id)) {
+                    seenIds.sub.add(item.id);
+                    
+                    let finalName = item.name || 'Unknown Channel';
+                    let finalAvatar = 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
+
+                    // "名前 &アイコンリンク" 形式を解析
+                    if (finalName.includes(' &')) {
+                        const parts = finalName.split(' &');
+                        finalName = parts[0];
+                        finalAvatar = parts[1];
+                    } else if (reversedIcons[subIndexCounter]) {
+                        finalAvatar = reversedIcons[subIndexCounter];
+                    } else if (item.icon || item.subscriptionimage) {
+                        finalAvatar = item.icon || item.subscriptionimage;
+                    }
+                    
+                    newSubscriptions.push({
+                        id: item.id,
+                        name: finalName,
+                        avatarUrl: finalAvatar,
+                        subscriberCount: ''
+                    });
+                    subIndexCounter++;
+                }
+            } catch (e) {
+                console.warn("Skipping sub item", item);
+            }
+        }
+
         for (let i = items.length - 1; i >= 0; i--) {
             const item = items[i];
             if (!item || !item.category) continue;
@@ -190,7 +230,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         newShortsHistory.push({
                             id: item.id,
                             title: item.text || 'No Title',
-                            thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+                            thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/mqdefault.jpg`,
                             channelName: '履歴',
                             channelId: '',
                             views: '',
@@ -198,31 +238,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                             duration: ''
                         });
                     }
-                } else if (item.category === 'subscription') {
-                    if (item.id && !seenIds.sub.has(item.id)) {
-                        seenIds.sub.add(item.id);
-                        
-                        // NEW: Try to find icon from various potential keys including 'subscriptionimage'
-                        let avatarUrl = item.subscriptionimage || item.image || item.icon || item.avatar || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
-                        
-                        newSubscriptions.push({
-                            id: item.id,
-                            name: item.name || 'Unknown Channel',
-                            avatarUrl: avatarUrl,
-                            subscriberCount: ''
-                        });
-                    }
                 }
-            } catch (e) {
-                console.warn("Skipping malformed item", item);
-            }
+            } catch (e) {}
         }
 
-        // Safely update LocalStorage
         if(newSearchHistory.length > 0) localStorage.setItem('searchHistory', JSON.stringify(newSearchHistory));
         if(newVideoHistory.length > 0) localStorage.setItem('videoHistory', JSON.stringify(newVideoHistory));
         if(newShortsHistory.length > 0) localStorage.setItem('shortsHistory', JSON.stringify(newShortsHistory));
-        if(newSubscriptions.length > 0) localStorage.setItem('subscribedChannels', JSON.stringify(newSubscriptions));
+        if(newSubscriptions.length > 0) localStorage.setItem('subscribedChannels', JSON.stringify(newSubscriptions.reverse()));
     };
 
     const fetchUserData = async () => {
@@ -240,24 +263,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    // Helper to safely truncate strings for URL
     const safeStr = (s: string) => {
         if (!s) return '';
-        // Replace commas to avoid API parsing issues (server splits by comma)
         let cleaned = s.replace(/,/g, ' ');
-        // Aggressively truncate to 30 chars to avoid encoded URL length limits in GAS (2000 chars)
         if (cleaned.length > 30) cleaned = cleaned.substring(0, 30) + '...';
         return cleaned;
     };
 
     const syncAction = useCallback(async (payload: SyncPayload) => {
         if (!user || !user.password) return;
-
-        const params: Record<string, string> = {
-            userid: user.id,
-            pw: user.password
-        };
-
+        const params: Record<string, string> = { userid: user.id, pw: user.password };
         try {
             if (payload.category === 'search') {
                 params.searchID = safeStr(payload.item);
@@ -269,22 +284,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 params.shorthistrytext = safeStr(payload.item.title);
             } else if (payload.category === 'subscription') {
                 params.subscriptionID = payload.item.id;
-                params.subscriptionname = safeStr(payload.item.name);
-                // NEW: Send icon URL if available to preserve it
-                if (payload.item.avatarUrl) {
-                    params.subscriptionimage = payload.item.avatarUrl;
-                }
+                // "名前 &アイコンリンク" の形式で送信
+                params.subscriptionname = `${safeStr(payload.item.name)} &${payload.item.avatarUrl || ''}`;
+                if (payload.item.avatarUrl) params.icondata = payload.item.avatarUrl;
             }
-
             const url = buildUrl('writealldeta', params);
-            // Fire and forget (silent)
             await smartFetch(url);
         } catch (e) {
             console.error("Auto-sync failed", e);
         }
     }, [user]);
 
-    // Manually sync recent items (Split requests to keep URL short)
     const syncRecent = async () => {
         if (!user || !user.password) return;
         setIsLoading(true);
@@ -293,59 +303,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
             const shorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
             const subs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
-
-            // Limit per request to stay SAFE under 2000 chars even with encoding
             const limit = 3; 
 
-            // 1. Sync Search
             if (search.length > 0) {
-                const url = buildUrl('writealldeta', {
-                    userid: user.id,
-                    pw: user.password,
-                    searchID: search.slice(0, 10).map(safeStr).join(',') // Search terms are usually short, can send more
-                });
-                await smartFetch(url);
+                await smartFetch(buildUrl('writealldeta', { userid: user.id, pw: user.password, searchID: search.slice(0, 10).map(safeStr).join(',') }));
             }
-
-            // 2. Sync History
             if (history.length > 0) {
-                const url = buildUrl('writealldeta', {
-                    userid: user.id,
-                    pw: user.password,
-                    histryid: history.slice(0, limit).map((v: any) => v.id).join(','),
-                    test: history.slice(0, limit).map((v: any) => safeStr(v.title)).join(',')
-                });
-                await smartFetch(url);
+                await smartFetch(buildUrl('writealldeta', { userid: user.id, pw: user.password, histryid: history.slice(0, limit).map((v: any) => v.id).join(','), test: history.slice(0, limit).map((v: any) => safeStr(v.title)).join(',') }));
             }
-
-            // 3. Sync Shorts
             if (shorts.length > 0) {
-                const url = buildUrl('writealldeta', {
-                    userid: user.id,
-                    pw: user.password,
-                    shorthistryID: shorts.slice(0, limit).map((v: any) => v.id).join(','),
-                    shorthistrytext: shorts.slice(0, limit).map((v: any) => safeStr(v.title)).join(',')
-                });
-                await smartFetch(url);
+                await smartFetch(buildUrl('writealldeta', { userid: user.id, pw: user.password, shorthistryID: shorts.slice(0, limit).map((v: any) => v.id).join(','), shorthistrytext: shorts.slice(0, limit).map((v: any) => safeStr(v.title)).join(',') }));
             }
-
-            // 4. Sync Subs
             if (subs.length > 0) {
-                const url = buildUrl('writealldeta', {
-                    userid: user.id,
-                    pw: user.password,
+                await smartFetch(buildUrl('writealldeta', {
+                    userid: user.id, pw: user.password,
                     subscriptionID: subs.slice(0, limit).map((c: any) => c.id).join(','),
-                    subscriptionname: subs.slice(0, limit).map((c: any) => safeStr(c.name)).join(','),
-                    // Try sending icons
-                    subscriptionimage: subs.slice(0, limit).map((c: any) => c.avatarUrl || '').join(',')
-                });
-                await smartFetch(url);
+                    // "名前 &アイコンリンク" の形式で一括送信
+                    subscriptionname: subs.slice(0, limit).map((c: any) => `${safeStr(c.name)} &${c.avatarUrl || ''}`).join(','),
+                    icondata: subs.slice(0, limit).map((c: any) => c.avatarUrl || '').join(',')
+                }));
             }
-
             alert('最新データのクラウド保存が完了しました。');
         } catch (e: any) {
             console.error(e);
-            alert('一部のデータの保存に失敗しました: ' + e.message);
+            alert('保存に失敗しました: ' + e.message);
         } finally {
             setIsLoading(false);
         }
