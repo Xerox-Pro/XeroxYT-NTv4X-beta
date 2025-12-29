@@ -17,7 +17,7 @@ const MAX_HISTORY_LENGTH = 50;
 
 export const SearchHistoryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction, isGuestMode } = usePreference();
-  const { triggerAutoSync } = useAuth();
+  const { syncAction } = useAuth();
   const isInitialized = useRef(false);
 
   const [searchHistory, setSearchHistory] = useState<string[]>(() => {
@@ -38,21 +38,24 @@ export const SearchHistoryProvider: React.FC<{ children: ReactNode }> = ({ child
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory));
-      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save search history to localStorage", error);
     }
-  }, [searchHistory, isGuestMode, triggerAutoSync]);
+  }, [searchHistory]);
 
   const addSearchTerm = useCallback((term: string) => {
-    if (isGuestMode) return; // Do not save search history in guest mode
+    if (isGuestMode) return; 
 
     setSearchHistory(prev => {
+      if (prev.length > 0 && prev[0].toLowerCase() === term.toLowerCase()) return prev;
       const newHistory = [term, ...prev.filter(t => t.toLowerCase() !== term.toLowerCase())];
       return newHistory.slice(0, MAX_HISTORY_LENGTH);
     });
     notifyAction();
-  }, [notifyAction, isGuestMode]);
+    
+    // Auto-sync single item
+    syncAction({ category: 'search', item: term });
+  }, [notifyAction, isGuestMode, syncAction]);
 
   const removeSearchTerms = useCallback((terms: string[]) => {
     setSearchHistory(prev => prev.filter(t => !terms.includes(t)));

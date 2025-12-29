@@ -488,7 +488,7 @@ export async function getStreamUrls(videoId: string): Promise<StreamUrls> {
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
     // New endpoint structure using apiFetch which cycles mirrors
     return fetchWithCache(`stream-data-v3-${videoId}`, async () => {
-        const data = await apiFetch(`stream/${videoId}`);
+        const data = await apiFetch(`stream?id=${videoId}`);
         
         const result: StreamData = {
             streamingUrl: null,

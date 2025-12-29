@@ -1,12 +1,18 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 
-// New Render API Endpoint
+// API Base URL (Render)
 const API_BASE_URL = "https://xerox-login-api.onrender.com";
 
 interface User {
     id: string;
     password?: string; 
+}
+
+// Data payload type for single action sync
+export interface SyncPayload {
+    category: 'search' | 'history' | 'shorts' | 'subscription';
+    item: any; // string for search, Video/Channel object for others
 }
 
 interface AuthContextType {
@@ -15,18 +21,18 @@ interface AuthContextType {
     login: (id: string, pw: string) => Promise<void>;
     signup: (id: string, pw: string) => Promise<void>;
     logout: () => void;
-    syncData: (silent?: boolean) => Promise<void>;
+    syncAction: (payload: SyncPayload) => Promise<void>;
+    syncRecent: () => Promise<void>;
     fetchUserData: () => Promise<void>;
-    triggerAutoSync: () => void;
     isLoading: boolean;
     error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper to handle fetch via GAS proxy if available, or standard fetch
+// Helper to handle fetch via GAS proxy if available
 const smartFetch = async (url: string): Promise<any> => {
-    // @ts-ignore - google object exists in GAS environment
+    // @ts-ignore
     if (typeof google !== 'undefined' && google.script && google.script.run) {
         return new Promise((resolve, reject) => {
             // @ts-ignore
@@ -37,19 +43,15 @@ const smartFetch = async (url: string): Promise<any> => {
                         status: res.status,
                         json: async () => {
                             try { return JSON.parse(res.body); }
-                            catch (e) { throw new Error('Invalid JSON response'); }
+                            catch (e) { return {}; }
                         },
                         text: async () => res.body
                     });
                 })
-                .withFailureHandler((err: any) => {
-                    console.error("GAS Proxy Error:", err);
-                    reject(new Error("GAS Proxy Error: " + err));
-                })
-                .proxyApi(url); // Call the server-side GAS function
+                .withFailureHandler((err: any) => reject(new Error("GAS Proxy Error: " + err)))
+                .proxyApi(url);
         });
     } else {
-        // Fallback for local development (might fail CORS if not proxied)
         return fetch(url);
     }
 };
@@ -58,19 +60,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const syncTimeoutRef = useRef<any>(null);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('xerox_user');
         if (storedUser) {
-            const parsedUser = JSON.parse(storedUser);
-            setUser(parsedUser);
-            // Auto-fetch data on site access if logged in
-            fetchUserDataInternal(parsedUser.id, parsedUser.password, true);
+            try {
+                setUser(JSON.parse(storedUser));
+            } catch (e) {
+                console.error("Failed to parse user", e);
+            }
         }
     }, []);
 
-    // Helper to construct URL for Express API
     const buildUrl = (action: string, params: Record<string, string>) => {
         const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
         const searchParams = new URLSearchParams(params);
@@ -81,12 +82,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoading(true);
         setError(null);
         try {
-            // Login now also fetches data to ensure local state is up to date
-            await fetchUserDataInternal(id, pw);
-            
-            const loggedInUser = { id, password: pw };
-            setUser(loggedInUser);
-            localStorage.setItem('xerox_user', JSON.stringify(loggedInUser));
+            const url = buildUrl('login', { userid: id, pw: pw });
+            const res = await smartFetch(url);
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                const loggedInUser = { id, password: pw };
+                setUser(loggedInUser);
+                localStorage.setItem('xerox_user', JSON.stringify(loggedInUser));
+                
+                await fetchUserDataInternal(id, pw);
+                window.location.reload();
+            } else {
+                throw new Error(data.message || 'Login failed');
+            }
         } catch (err: any) {
             setError(err.message);
             throw err;
@@ -101,18 +110,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
             const url = buildUrl('newcreateuser', { userid: id, pw: pw });
             const res = await smartFetch(url);
-            
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || errData.message || `Signup failed: ${res.status}`);
-            }
-
             const data = await res.json();
             
-            if (data.message && data.message.includes('Success')) {
+            if (data.message && (data.message.includes('Success') || data.message.includes('created'))) {
                  await login(id, pw);
             } else {
-                 throw new Error(data.error || data.message || 'Signup failed');
+                 throw new Error(data.error || 'Signup failed');
             }
         } catch (err: any) {
             setError(err.message);
@@ -125,50 +128,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const logout = () => {
         setUser(null);
         localStorage.removeItem('xerox_user');
+        window.location.reload();
     };
 
-    // Internal function to fetch and apply data (GET)
-    const fetchUserDataInternal = async (id: string, pw: string | undefined, isAutoLoad = false) => {
-        if (!id || !pw) return;
-        try {
-            // Correct endpoint for reading data: readalluserdate
-            const url = buildUrl('readalluserdate', { userid: id, pw: pw });
-            const res = await smartFetch(url);
-            
-            if (!res.ok) throw new Error('Failed to fetch user data');
-            const data = await res.json();
+    // Robust fetcher that safely reconstructs objects
+    const fetchUserDataInternal = async (id: string, pw: string) => {
+        const url = buildUrl('readalluserdate', { userid: id, pw: pw });
+        const res = await smartFetch(url);
+        const json = await res.json();
 
-            if (data.status === 'success' && data.data) {
-                const userData = data.data;
-                const cloudItems = userData.data || [];
+        // The API returns the raw JSON file content directly or wrapped in `data`
+        let items: any[] = [];
+        if (json && Array.isArray(json.data)) {
+            items = json.data;
+        } else if (Array.isArray(json)) {
+            items = json;
+        }
 
-                // 1. Prepare Data Containers
-                const searchHistory: string[] = [];
-                const videoHistoryMap = new Map<string, any>();
-                const shortsHistoryMap = new Map<string, any>();
-                const subscriptionsMap = new Map<string, any>();
+        if (!items || items.length === 0) return;
 
-                // 2. Load Local Data to Preserve Metadata if possible
-                const localHistory = JSON.parse(localStorage.getItem('videoHistory') || '[]');
-                const localShorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
-                const localSubs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
+        const newSearchHistory: string[] = [];
+        const newVideoHistory: any[] = [];
+        const newShortsHistory: any[] = [];
+        const newSubscriptions: any[] = [];
 
-                const localHistoryMap = new Map(localHistory.map((v: any) => [v.id, v]));
-                const localShortsMap = new Map(localShorts.map((v: any) => [v.id, v]));
-                const localSubsMap = new Map(localSubs.map((c: any) => [c.id, c]));
+        const seenIds = {
+            video: new Set(),
+            shorts: new Set(),
+            sub: new Set()
+        };
 
-                // 3. Process Cloud Items with Safety Checks
-                cloudItems.forEach((item: any) => {
-                    if (item.category === 'search') {
-                        searchHistory.push(item.word);
+        // Process in reverse to restore order if API appends new items to end
+        // (Assuming API appends, so last item is newest. We want newest first in UI lists usually)
+        for (let i = items.length - 1; i >= 0; i--) {
+            const item = items[i];
+            if (!item || !item.category) continue;
+
+            try {
+                if (item.category === 'search') {
+                    if (item.word && typeof item.word === 'string' && !newSearchHistory.includes(item.word)) {
+                        newSearchHistory.push(item.word);
                     }
-                    else if (item.category === 'histry') {
-                        const local = localHistoryMap.get(item.id);
-                        videoHistoryMap.set(item.id, local || {
+                } else if (item.category === 'histry') {
+                    if (item.id && !seenIds.video.has(item.id)) {
+                        seenIds.video.add(item.id);
+                        newVideoHistory.push({
                             id: item.id,
                             title: item.text || 'No Title',
                             thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/mqdefault.jpg`,
-                            channelName: 'Unknown',
+                            channelName: '履歴',
                             channelId: '',
                             channelAvatarUrl: '',
                             views: '',
@@ -177,135 +185,130 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                             isoDuration: ''
                         });
                     }
-                    else if (item.category === 'shorthistry') {
-                        const local = localShortsMap.get(item.id);
-                        shortsHistoryMap.set(item.id, local || {
+                } else if (item.category === 'shorthistry') {
+                    if (item.id && !seenIds.shorts.has(item.id)) {
+                        seenIds.shorts.add(item.id);
+                        newShortsHistory.push({
                             id: item.id,
                             title: item.text || 'No Title',
                             thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
-                            channelName: '',
+                            channelName: '履歴',
                             channelId: '',
                             views: '',
                             uploadedAt: '',
                             duration: ''
                         });
                     }
-                    else if (item.category === 'subscription') {
-                        const local = localSubsMap.get(item.id);
-                        subscriptionsMap.set(item.id, local || {
+                } else if (item.category === 'subscription') {
+                    if (item.id && !seenIds.sub.has(item.id)) {
+                        seenIds.sub.add(item.id);
+                        newSubscriptions.push({
                             id: item.id,
                             name: item.name || 'Unknown Channel',
                             avatarUrl: 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg',
                             subscriberCount: ''
                         });
                     }
-                });
-
-                // 4. Save to LocalStorage
-                const newHistory = Array.from(videoHistoryMap.values());
-                const newShorts = Array.from(shortsHistoryMap.values());
-                const newSubs = Array.from(subscriptionsMap.values());
-
-                if (searchHistory.length > 0) localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
-                if (newHistory.length > 0) localStorage.setItem('videoHistory', JSON.stringify(newHistory));
-                if (newShorts.length > 0) localStorage.setItem('shortsHistory', JSON.stringify(newShorts));
-                if (newSubs.length > 0) localStorage.setItem('subscribedChannels', JSON.stringify(newSubs));
+                }
+            } catch (e) {
+                console.warn("Skipping malformed item", item);
             }
-        } catch (e) {
-            console.error("Fetch user data failed", e);
-            if (!isAutoLoad) throw e;
         }
+
+        // Safely update LocalStorage
+        localStorage.setItem('searchHistory', JSON.stringify(newSearchHistory));
+        localStorage.setItem('videoHistory', JSON.stringify(newVideoHistory));
+        localStorage.setItem('shortsHistory', JSON.stringify(newShortsHistory));
+        localStorage.setItem('subscribedChannels', JSON.stringify(newSubscriptions));
     };
 
-    // Public wrapper for fetching data manually (Reload button)
     const fetchUserData = async () => {
         if (!user || !user.password) return;
         setIsLoading(true);
         try {
             await fetchUserDataInternal(user.id, user.password);
-            // Force reload to reflect changes
+            alert('データを同期しました。ページを再読み込みします。');
             window.location.reload();
         } catch (e: any) {
-            alert('データの取得に失敗しました: ' + e.message);
+            console.error(e);
+            alert('データの取得に失敗しました。');
         } finally {
             setIsLoading(false);
         }
     };
 
-    const syncData = useCallback(async (silent = false) => {
+    // --- New Action-Based Sync ---
+    // Sends only ONE item at a time to avoid URL length limits.
+    const syncAction = useCallback(async (payload: SyncPayload) => {
         if (!user || !user.password) return;
-        if (!silent) setIsLoading(true);
-        
+
+        const safeStr = (s: string) => s ? s.replace(/,/g, ' ').substring(0, 100) : ''; 
+
+        const params: Record<string, string> = {
+            userid: user.id,
+            pw: user.password
+        };
+
         try {
-            const searchHistory: string[] = JSON.parse(localStorage.getItem('searchHistory') || '[]');
-            const history: any[] = JSON.parse(localStorage.getItem('videoHistory') || '[]');
-            const shortsHistory: any[] = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
-            const subscriptions: any[] = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
-
-            const limit = 50;
-            const sanitize = (s: string) => s ? s.replace(/,/g, '') : ''; 
-
-            const searchID = searchHistory.slice(0, limit).join(',');
-            
-            const histryid = history.slice(0, limit).map(v => v.id).join(',');
-            const test = history.slice(0, limit).map(v => sanitize(v.title)).join(',');
-            
-            const shorthistryID = shortsHistory.slice(0, limit).map(v => v.id).join(',');
-            const shorthistrytext = shortsHistory.slice(0, limit).map(v => sanitize(v.title)).join(',');
-
-            const subscriptionID = subscriptions.slice(0, limit).map(c => c.id).join(',');
-            const subscriptionname = subscriptions.slice(0, limit).map(c => sanitize(c.name)).join(',');
-
-            const params: Record<string, string> = {
-                userid: user.id,
-                pw: user.password
-            };
-            
-            if(searchID) params.searchID = searchID;
-            if(histryid) params.histryid = histryid;
-            if(test) params.test = test;
-            if(shorthistryID) params.shorthistryID = shorthistryID;
-            if(shorthistrytext) params.shorthistrytext = shorthistrytext;
-            if(subscriptionID) params.subscriptionID = subscriptionID;
-            if(subscriptionname) params.subscriptionname = subscriptionname;
+            if (payload.category === 'search') {
+                params.searchID = safeStr(payload.item);
+            } else if (payload.category === 'history') {
+                params.histryid = payload.item.id;
+                params.test = safeStr(payload.item.title);
+            } else if (payload.category === 'shorts') {
+                params.shorthistryID = payload.item.id;
+                params.shorthistrytext = safeStr(payload.item.title);
+            } else if (payload.category === 'subscription') {
+                params.subscriptionID = payload.item.id;
+                params.subscriptionname = safeStr(payload.item.name);
+            }
 
             const url = buildUrl('writealldeta', params);
-            
-            // Use smartFetch to handle GAS Proxy logic
-            // Note: smartFetch resolves a Response-like object, does not support sendBeacon directly
-            const res = await smartFetch(url);
-            
-            if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    throw new Error(errData.error || `Sync failed: ${res.status}`);
-            }
-            const data = await res.json();
-            if (data.message === 'Success') {
-                if (!silent) alert('同期が完了しました。');
-            } else {
-                throw new Error('Sync failed: ' + (data.error || JSON.stringify(data)));
-            }
-
-        } catch (err: any) {
-            console.error(err);
-            if (!silent) alert('同期に失敗しました: ' + err.message);
-        } finally {
-            if (!silent) setIsLoading(false);
+            // Fire and forget (silent)
+            await smartFetch(url);
+        } catch (e) {
+            console.error("Auto-sync failed", e);
         }
     }, [user]);
 
-    // Auto-sync Trigger (Debounced)
-    const triggerAutoSync = useCallback(() => {
-        if (!user) return;
-        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-        
-        syncTimeoutRef.current = setTimeout(() => {
-            syncData(true); // Silent sync
-        }, 2000); // 2 seconds debounce
-    }, [user, syncData]);
+    // Manually sync recent items (top 5 of each category)
+    // Used for the "Sync" button in Account Modal
+    const syncRecent = async () => {
+        if (!user || !user.password) return;
+        setIsLoading(true);
+        try {
+            const search = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+            const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
+            const shorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
+            const subs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
+
+            const safeStr = (s: string) => s ? s.replace(/,/g, ' ').substring(0, 50) : '';
+            const limit = 5; // Very small batch to be safe
+
+            const params: Record<string, string> = {
+                userid: user.id,
+                pw: user.password,
+                searchID: search.slice(0, limit).map(safeStr).join(','),
+                histryid: history.slice(0, limit).map((v: any) => v.id).join(','),
+                test: history.slice(0, limit).map((v: any) => safeStr(v.title)).join(','),
+                shorthistryID: shorts.slice(0, limit).map((v: any) => v.id).join(','),
+                shorthistrytext: shorts.slice(0, limit).map((v: any) => safeStr(v.title)).join(','),
+                subscriptionID: subs.slice(0, limit).map((c: any) => c.id).join(','),
+                subscriptionname: subs.slice(0, limit).map((c: any) => safeStr(c.name)).join(',')
+            };
+
+            const url = buildUrl('writealldeta', params);
+            await smartFetch(url);
+            alert('最新データのクラウド保存が完了しました。');
+        } catch (e: any) {
+            alert('保存に失敗しました: ' + e.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
-        <AuthContext.Provider value={{ user, isLoggedIn: !!user, login, signup, logout, syncData, fetchUserData, triggerAutoSync, isLoading, error }}>
+        <AuthContext.Provider value={{ user, isLoggedIn: !!user, login, signup, logout, syncAction, syncRecent, fetchUserData, isLoading, error }}>
             {children}
         </AuthContext.Provider>
     );

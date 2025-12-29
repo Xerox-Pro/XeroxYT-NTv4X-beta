@@ -10,7 +10,7 @@ interface AccountModalProps {
 }
 
 const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
-    const { user, login, signup, logout, syncData, fetchUserData, isLoading, error: authError } = useAuth();
+    const { user, login, signup, logout, syncRecent, fetchUserData, isLoading, error: authError } = useAuth();
     const [mode, setMode] = useState<'login' | 'signup'>('login');
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
@@ -40,7 +40,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
     };
 
     const handleSync = async () => {
-        await syncData();
+        await syncRecent();
     };
 
     const handleReload = async () => {
@@ -81,7 +81,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
                                     disabled={isLoading}
                                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-50"
                                 >
-                                    {isLoading ? '処理中...' : <><SaveIcon /> データ同期 (クラウドへ保存)</>}
+                                    {isLoading ? '処理中...' : <><SaveIcon /> 最新データを保存</>}
                                 </button>
 
                                 <button 
@@ -89,7 +89,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
                                     disabled={isLoading}
                                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors disabled:opacity-50"
                                 >
-                                    {isLoading ? '処理中...' : <><RepeatIcon /> 再読み込み (クラウドから取得)</>}
+                                    {isLoading ? '処理中...' : <><RepeatIcon /> データ再取得 (リロード)</>}
                                 </button>
                                 
                                 <button 
@@ -153,7 +153,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
                     
                     <div className="mt-6 text-center">
                         <p className="text-[10px] text-yt-light-gray opacity-50">
-                            ユーザーに関する責任は一切取ることができません
+                            ユーザーに関する責任は一切取りません
                         </p>
                     </div>
                 </div>

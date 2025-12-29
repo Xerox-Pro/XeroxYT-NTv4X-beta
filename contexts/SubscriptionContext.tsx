@@ -15,7 +15,7 @@ const SubscriptionContext = createContext<SubscriptionContextType | undefined>(u
 
 export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction } = usePreference();
-  const { triggerAutoSync } = useAuth();
+  const { syncAction } = useAuth();
   const isInitialized = useRef(false);
 
   const [subscribedChannels, setSubscribedChannels] = useState<Channel[]>(() => {
@@ -36,11 +36,10 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem('subscribedChannels', JSON.stringify(subscribedChannels));
-      triggerAutoSync();
     } catch (error) {
       console.error(error);
     }
-  }, [subscribedChannels, triggerAutoSync]);
+  }, [subscribedChannels]);
 
   const subscribe = (channel: Channel) => {
     setSubscribedChannels(prev => {
@@ -50,11 +49,16 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       return [...prev, channel];
     });
     notifyAction();
+    // Auto-sync single item
+    syncAction({ category: 'subscription', item: channel });
   };
 
   const unsubscribe = (channelId: string) => {
     setSubscribedChannels(prev => prev.filter(c => c.id !== channelId));
     notifyAction();
+    // Unsubscribe is hard to sync with current append-only backend logic, 
+    // we rely on syncRecent or reload for state consistency if needed, 
+    // or assume "last write wins" isn't fully supported for deletions.
   };
 
   const isSubscribed = (channelId: string) => {

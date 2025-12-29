@@ -21,7 +21,7 @@ const MAX_HISTORY_LENGTH = 200;
 
 export const HistoryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { notifyAction, isGuestMode } = usePreference();
-  const { triggerAutoSync } = useAuth();
+  const { syncAction } = useAuth();
   const isInitialized = useRef(false);
 
   const [history, setHistory] = useState<Video[]>([]);
@@ -42,51 +42,60 @@ export const HistoryProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
   }, []);
 
-  // Sync Write & Auto Cloud Sync
+  // Sync Write
   useEffect(() => {
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save history to localStorage", error);
     }
-  }, [history, isGuestMode, triggerAutoSync]);
+  }, [history]);
 
   useEffect(() => {
     if (!isInitialized.current) return;
     try {
       window.localStorage.setItem(SHORTS_HISTORY_KEY, JSON.stringify(shortsHistory));
-      if (!isGuestMode) triggerAutoSync();
     } catch (error) {
       console.error("Failed to save shorts history to localStorage", error);
     }
-  }, [shortsHistory, isGuestMode, triggerAutoSync]);
+  }, [shortsHistory]);
 
   const addVideoToHistory = useCallback((video: Video) => {
     if (isGuestMode) return; 
 
     setHistory(prev => {
+      // Avoid duplicates at the top
+      if (prev.length > 0 && prev[0].id === video.id) return prev;
       const newHistory = [video, ...prev.filter(v => v.id !== video.id)];
       return newHistory.slice(0, MAX_HISTORY_LENGTH);
     });
     notifyAction();
-  }, [notifyAction, isGuestMode]);
+    
+    // Auto-sync single item
+    syncAction({ category: 'history', item: video });
+  }, [notifyAction, isGuestMode, syncAction]);
 
   const addShortToHistory = useCallback((video: Video) => {
     if (isGuestMode) return;
 
     setShortsHistory(prev => {
+      if (prev.length > 0 && prev[0].id === video.id) return prev;
       const newHistory = [video, ...prev.filter(v => v.id !== video.id)];
       return newHistory.slice(0, MAX_HISTORY_LENGTH);
     });
     notifyAction();
-  }, [notifyAction, isGuestMode]);
+    
+    // Auto-sync single item
+    syncAction({ category: 'shorts', item: video });
+  }, [notifyAction, isGuestMode, syncAction]);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
     setShortsHistory([]);
     notifyAction();
+    // Clearing history on cloud isn't supported by 'writealldeta' easily without a reset flag, 
+    // so we just clear locally. The user can use "Reset Data" in settings if needed.
   }, [notifyAction]);
 
   const removeVideosFromHistory = useCallback((videoIds: string[]) => {
