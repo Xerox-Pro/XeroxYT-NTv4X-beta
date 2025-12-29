@@ -300,8 +300,7 @@ export async function getPlayerConfig(): Promise<string> {
 }
 
 // --- DATA MAPPING HELPERS ---
-// ... (Data mapping helpers remain same) ...
-// (Skipping mapYoutubeiVideoToVideo and others to save space as they are unchanged)
+
 export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
     if (!item) return null;
 
@@ -485,10 +484,9 @@ export async function getStreamUrls(videoId: string): Promise<StreamUrls> {
 }
 
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
-    return fetchWithCache(`stream-data-v3-${videoId}`, async () => {
-        // NEW: Call /stream?id=... directly (bypassing /api prefix of apiFetch)
+    return fetchWithCache(`stream-data-v4-${videoId}`, async () => {
+        // Direct call to /stream?id= without /api prefix as requested
         const url = `${currentApiBase}/stream?id=${videoId}`;
-        
         const response = await smartFetch(url);
         const text = await response.text();
         let data;
@@ -510,22 +508,20 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
             separate1080p: null
         };
 
-        // Extract formats
         const formats = Array.isArray(data.formats) ? data.formats : [];
         
-        // NEW: Prioritize 360p as requested
+        // PRIORITIZE 360p as requested
         const format360 = formats.find((f: any) => f.quality === '360p');
         
         if (format360 && format360.url) {
+            // Direct embedding, no proxy wrapper around the streaming URL
             result.streamingUrl = format360.url;
         } else if (data.streamingUrl) {
             result.streamingUrl = data.streamingUrl;
         } else if (formats.length > 0) {
-            // Fallback to first available if 360p not found and no root streamingUrl
             result.streamingUrl = formats[0].url;
         }
 
-        // Map formats for download modal
         result.combinedFormats = formats.map((f: any) => ({
             quality: f.quality || 'Unknown',
             container: f.container || 'mp4',
@@ -533,7 +529,6 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
             isVideoOnly: false
         }));
 
-        // Audio
         if (data.audioUrl) {
             result.audioOnlyFormat = {
                 quality: 'best',
@@ -543,7 +538,7 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
         }
 
         return result;
-    }, 60 * 60 * 1000); // 1 hour cache
+    }, 60 * 60 * 1000); 
 }
 
 export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<ChannelDetails>): Video => {
@@ -628,9 +623,7 @@ export async function searchVideos(query: string, pageToken = '1', channelId?: s
     });
 }
 
-// ... rest of the file (getExternalRelatedVideos, getVideoDetails, etc.) unchanged ...
 export async function getExternalRelatedVideos(videoId: string): Promise<Video[]> {
-    // This function is kept for backward compatibility if called elsewhere, but VideoPlayerPage now uses getVideoDetails directly
     const cacheKey = `ext-related-${videoId}`;
     return fetchWithCache(cacheKey, async () => {
         try {
@@ -663,19 +656,16 @@ export async function getExternalRelatedVideos(videoId: string): Promise<Video[]
 
 export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
     return fetchWithCache(`video-details-v4-${videoId}`, async () => {
-        // Use the new endpoint structure with API Mirrors
         const data = await apiFetch(`video?id=${videoId}`);
 
         if (!data) {
              throw new Error('動画の読み込みに失敗しました。');
         }
 
-        // Map basic info
         const title = data.primary_info?.title?.text || 'No Title';
         const views = data.primary_info?.view_count?.view_count?.text || '';
         const uploadedAt = data.primary_info?.relative_date?.text || data.primary_info?.published?.text || '';
         
-        // Map Author
         let owner = data.secondary_info?.owner;
         let channelName = owner?.author?.name || 'Unknown';
         let channelId = owner?.author?.id || '';
@@ -684,7 +674,6 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
 
         const collaborators: Channel[] = [];
         
-        // Handle Collaborators (Dialog)
         const dialog = owner?.author?.endpoint?.showDialogCommand?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
         if (dialog) {
              const listItems = dialog.customContent?.listViewModel?.listItems;
@@ -697,7 +686,6 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                      const cId = vm.title?.commandRuns?.[0]?.onTap?.innertubeCommand?.browseEndpoint?.browseId;
                      let cSub = vm.subtitle?.content || '';
                      
-                     // Clean up sub count if it contains extra text
                      const subMatch = cSub.match(/チャンネル登録者数\s+(.*)/);
                      if (subMatch) {
                          cSub = subMatch[1].replace(/[\u2000-\u206F]/g, '').trim(); 
@@ -707,7 +695,7 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                          collaborators.push({
                              id: cId,
                              name: cName,
-                             avatarUrl: '', // Will fetch below
+                             avatarUrl: '', 
                              subscriberCount: cSub
                          });
                      }
