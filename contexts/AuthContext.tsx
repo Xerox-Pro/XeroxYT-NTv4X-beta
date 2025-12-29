@@ -159,7 +159,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
 
         // Process in reverse to restore order if API appends new items to end
-        // (Assuming API appends, so last item is newest. We want newest first in UI lists usually)
         for (let i = items.length - 1; i >= 0; i--) {
             const item = items[i];
             if (!item || !item.category) continue;
@@ -202,10 +201,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 } else if (item.category === 'subscription') {
                     if (item.id && !seenIds.sub.has(item.id)) {
                         seenIds.sub.add(item.id);
+                        
+                        // NEW: Try to find icon from various potential keys including 'subscriptionimage'
+                        let avatarUrl = item.subscriptionimage || item.image || item.icon || item.avatar || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
+                        
                         newSubscriptions.push({
                             id: item.id,
                             name: item.name || 'Unknown Channel',
-                            avatarUrl: 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg',
+                            avatarUrl: avatarUrl,
                             subscriberCount: ''
                         });
                     }
@@ -216,10 +219,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         // Safely update LocalStorage
-        localStorage.setItem('searchHistory', JSON.stringify(newSearchHistory));
-        localStorage.setItem('videoHistory', JSON.stringify(newVideoHistory));
-        localStorage.setItem('shortsHistory', JSON.stringify(newShortsHistory));
-        localStorage.setItem('subscribedChannels', JSON.stringify(newSubscriptions));
+        if(newSearchHistory.length > 0) localStorage.setItem('searchHistory', JSON.stringify(newSearchHistory));
+        if(newVideoHistory.length > 0) localStorage.setItem('videoHistory', JSON.stringify(newVideoHistory));
+        if(newShortsHistory.length > 0) localStorage.setItem('shortsHistory', JSON.stringify(newShortsHistory));
+        if(newSubscriptions.length > 0) localStorage.setItem('subscribedChannels', JSON.stringify(newSubscriptions));
     };
 
     const fetchUserData = async () => {
@@ -227,7 +230,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoading(true);
         try {
             await fetchUserDataInternal(user.id, user.password);
-            alert('データを同期しました。ページを再読み込みします。');
+            alert('データを同期しました。サイトを再読み込みしてください。');
             window.location.reload();
         } catch (e: any) {
             console.error(e);
@@ -237,12 +240,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    // --- New Action-Based Sync ---
-    // Sends only ONE item at a time to avoid URL length limits.
+    // Helper to safely truncate strings for URL
+    const safeStr = (s: string) => {
+        if (!s) return '';
+        // Replace commas to avoid API parsing issues (server splits by comma)
+        let cleaned = s.replace(/,/g, ' ');
+        // Aggressively truncate to 30 chars to avoid encoded URL length limits in GAS (2000 chars)
+        if (cleaned.length > 30) cleaned = cleaned.substring(0, 30) + '...';
+        return cleaned;
+    };
+
     const syncAction = useCallback(async (payload: SyncPayload) => {
         if (!user || !user.password) return;
-
-        const safeStr = (s: string) => s ? s.replace(/,/g, ' ').substring(0, 100) : ''; 
 
         const params: Record<string, string> = {
             userid: user.id,
@@ -261,6 +270,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             } else if (payload.category === 'subscription') {
                 params.subscriptionID = payload.item.id;
                 params.subscriptionname = safeStr(payload.item.name);
+                // NEW: Send icon URL if available to preserve it
+                if (payload.item.avatarUrl) {
+                    params.subscriptionimage = payload.item.avatarUrl;
+                }
             }
 
             const url = buildUrl('writealldeta', params);
@@ -271,8 +284,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     }, [user]);
 
-    // Manually sync recent items (top 5 of each category)
-    // Used for the "Sync" button in Account Modal
+    // Manually sync recent items (Split requests to keep URL short)
     const syncRecent = async () => {
         if (!user || !user.password) return;
         setIsLoading(true);
@@ -282,26 +294,58 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const shorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
             const subs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
 
-            const safeStr = (s: string) => s ? s.replace(/,/g, ' ').substring(0, 50) : '';
-            const limit = 5; // Very small batch to be safe
+            // Limit per request to stay SAFE under 2000 chars even with encoding
+            const limit = 3; 
 
-            const params: Record<string, string> = {
-                userid: user.id,
-                pw: user.password,
-                searchID: search.slice(0, limit).map(safeStr).join(','),
-                histryid: history.slice(0, limit).map((v: any) => v.id).join(','),
-                test: history.slice(0, limit).map((v: any) => safeStr(v.title)).join(','),
-                shorthistryID: shorts.slice(0, limit).map((v: any) => v.id).join(','),
-                shorthistrytext: shorts.slice(0, limit).map((v: any) => safeStr(v.title)).join(','),
-                subscriptionID: subs.slice(0, limit).map((c: any) => c.id).join(','),
-                subscriptionname: subs.slice(0, limit).map((c: any) => safeStr(c.name)).join(',')
-            };
+            // 1. Sync Search
+            if (search.length > 0) {
+                const url = buildUrl('writealldeta', {
+                    userid: user.id,
+                    pw: user.password,
+                    searchID: search.slice(0, 10).map(safeStr).join(',') // Search terms are usually short, can send more
+                });
+                await smartFetch(url);
+            }
 
-            const url = buildUrl('writealldeta', params);
-            await smartFetch(url);
+            // 2. Sync History
+            if (history.length > 0) {
+                const url = buildUrl('writealldeta', {
+                    userid: user.id,
+                    pw: user.password,
+                    histryid: history.slice(0, limit).map((v: any) => v.id).join(','),
+                    test: history.slice(0, limit).map((v: any) => safeStr(v.title)).join(',')
+                });
+                await smartFetch(url);
+            }
+
+            // 3. Sync Shorts
+            if (shorts.length > 0) {
+                const url = buildUrl('writealldeta', {
+                    userid: user.id,
+                    pw: user.password,
+                    shorthistryID: shorts.slice(0, limit).map((v: any) => v.id).join(','),
+                    shorthistrytext: shorts.slice(0, limit).map((v: any) => safeStr(v.title)).join(',')
+                });
+                await smartFetch(url);
+            }
+
+            // 4. Sync Subs
+            if (subs.length > 0) {
+                const url = buildUrl('writealldeta', {
+                    userid: user.id,
+                    pw: user.password,
+                    subscriptionID: subs.slice(0, limit).map((c: any) => c.id).join(','),
+                    subscriptionname: subs.slice(0, limit).map((c: any) => safeStr(c.name)).join(','),
+                    // Try sending icons
+                    subscriptionimage: subs.slice(0, limit).map((c: any) => c.avatarUrl || '').join(',')
+                });
+                await smartFetch(url);
+            }
+
             alert('最新データのクラウド保存が完了しました。');
         } catch (e: any) {
-            alert('保存に失敗しました: ' + e.message);
+            console.error(e);
+            alert('一部のデータの保存に失敗しました: ' + e.message);
         } finally {
             setIsLoading(false);
         }

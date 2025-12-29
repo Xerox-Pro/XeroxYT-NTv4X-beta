@@ -300,6 +300,8 @@ export async function getPlayerConfig(): Promise<string> {
 }
 
 // --- DATA MAPPING HELPERS ---
+// ... (Data mapping helpers remain same) ...
+// (Skipping mapYoutubeiVideoToVideo and others to save space as they are unchanged)
 export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
     if (!item) return null;
 
@@ -335,7 +337,6 @@ export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
          };
     }
 
-    // Support both 'id' (typical) and 'video_id' (search response)
     const videoId = item.id || item.videoId || item.content_id || item.video_id;
     if (!videoId || typeof videoId !== 'string') return null;
 
@@ -355,7 +356,6 @@ export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
     if (thumbnailUrl) thumbnailUrl = thumbnailUrl.split('?')[0];
 
     const durationOverlay = (item.thumbnail_overlays || []).find((o: any) => o.type === 'ThumbnailOverlayTimeStatus');
-    // Support 'length_text' from search response
     const duration = item.duration?.text ?? 
                      item.length?.simpleText ?? 
                      item.length_text?.text ??
@@ -387,7 +387,6 @@ export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
 
     if (rawViews) {
         const formatted = formatJapaneseNumber(rawViews);
-        // If it already contains '回視聴' (e.g. search response), don't double add
         if (rawViews.includes('回視聴')) {
             views = rawViews;
         } else {
@@ -486,9 +485,22 @@ export async function getStreamUrls(videoId: string): Promise<StreamUrls> {
 }
 
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
-    // New endpoint structure using apiFetch which cycles mirrors
     return fetchWithCache(`stream-data-v3-${videoId}`, async () => {
-        const data = await apiFetch(`stream?id=${videoId}`);
+        // NEW: Call /stream?id=... directly (bypassing /api prefix of apiFetch)
+        const url = `${currentApiBase}/stream?id=${videoId}`;
+        
+        const response = await smartFetch(url);
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            throw new Error(`Server returned non-JSON: ${text.slice(0, 50)}...`);
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || `Request failed for stream with status ${response.status}`);
+        }
         
         const result: StreamData = {
             streamingUrl: null,
@@ -498,16 +510,18 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
             separate1080p: null
         };
 
-        // Extract 360p from formats
+        // Extract formats
         const formats = Array.isArray(data.formats) ? data.formats : [];
+        
+        // NEW: Prioritize 360p as requested
         const format360 = formats.find((f: any) => f.quality === '360p');
         
-        // Prioritize 360p as requested, fallback to API provided streamingUrl
         if (format360 && format360.url) {
             result.streamingUrl = format360.url;
         } else if (data.streamingUrl) {
             result.streamingUrl = data.streamingUrl;
         } else if (formats.length > 0) {
+            // Fallback to first available if 360p not found and no root streamingUrl
             result.streamingUrl = formats[0].url;
         }
 
@@ -516,14 +530,14 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
             quality: f.quality || 'Unknown',
             container: f.container || 'mp4',
             url: f.url,
-            isVideoOnly: false // Combined formats typically have audio
+            isVideoOnly: false
         }));
 
         // Audio
         if (data.audioUrl) {
             result.audioOnlyFormat = {
                 quality: 'best',
-                container: 'm4a', // Assuming standard audio container
+                container: 'm4a',
                 url: data.audioUrl
             };
         }
@@ -550,7 +564,6 @@ export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<
 
 export async function getChannelHome(channelId: string): Promise<ChannelHomeData> {
     return fetchWithCache(`channel-home-${channelId}`, async () => {
-        // Use smartFetch for the external API via GAS proxy
         const response = await smartFetch(`${SIAWASE_API_BASE}/channel/${channelId}`);
         return await response.json();
     });
@@ -615,6 +628,7 @@ export async function searchVideos(query: string, pageToken = '1', channelId?: s
     });
 }
 
+// ... rest of the file (getExternalRelatedVideos, getVideoDetails, etc.) unchanged ...
 export async function getExternalRelatedVideos(videoId: string): Promise<Video[]> {
     // This function is kept for backward compatibility if called elsewhere, but VideoPlayerPage now uses getVideoDetails directly
     const cacheKey = `ext-related-${videoId}`;
@@ -684,10 +698,8 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                      let cSub = vm.subtitle?.content || '';
                      
                      // Clean up sub count if it contains extra text
-                     // e.g., "‎⁨@Nanatsukaze_⁩ • ⁨チャンネル登録者数 4.47万人⁩"
                      const subMatch = cSub.match(/チャンネル登録者数\s+(.*)/);
                      if (subMatch) {
-                         // Remove closing unicode characters if any (like POP directional formatting)
                          cSub = subMatch[1].replace(/[\u2000-\u206F]/g, '').trim(); 
                      }
 
@@ -703,13 +715,11 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
              }
         }
 
-        // Fix N/A Owner or missing avatars for collaborators
         if (collaborators.length > 0) {
              await Promise.all(collaborators.map(async (c) => {
                  try {
                      const cDetails = await getChannelDetails(c.id);
                      c.avatarUrl = cDetails.avatarUrl || 'https://www.gstatic.com/youtube/img/creator/avatar/default_64.svg';
-                     // Use the cleaner sub count from details if available
                      if (cDetails.subscriberCount) c.subscriberCount = cDetails.subscriberCount;
                  } catch (e) {
                      console.warn(`Failed to fetch details for collaborator ${c.name}`, e);
@@ -717,7 +727,6 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                  }
              }));
 
-             // If main owner is broken (N/A), use the first collaborator
              if (channelName === 'N/A' || channelId === 'N/A' || !channelId) {
                  const main = collaborators[0];
                  channelName = main.name;
@@ -727,13 +736,9 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
              }
         }
 
-        // Map Description
         const description = data.secondary_info?.description?.text || '';
-        
-        // Map Likes
         const likes = data.basic_info?.like_count ? String(data.basic_info.like_count) : '';
 
-        // Map Related Videos (watch_next_feed)
         const relatedVideos: Video[] = [];
         const rawRelated = data.watch_next_feed || [];
         
@@ -742,7 +747,6 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                  const rId = item.content_id;
                  const rTitle = item.metadata?.title?.text || '';
                  
-                 // Extract Metadata rows
                  const rows = item.metadata?.metadata?.metadata_rows || [];
                  let rChannelName = '';
                  let rViews = '';
@@ -767,10 +771,10 @@ export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
                          title: rTitle,
                          thumbnailUrl: rThumb || `https://i.ytimg.com/vi/${rId}/mqdefault.jpg`,
                          duration: rDuration,
-                         isoDuration: '', // Not provided in this format
+                         isoDuration: '',
                          channelName: rChannelName,
                          channelId: '', 
-                         channelAvatarUrl: '', // Not always available in related feed
+                         channelAvatarUrl: '',
                          views: rViews,
                          uploadedAt: rUploadedAt,
                          descriptionSnippet: '',
