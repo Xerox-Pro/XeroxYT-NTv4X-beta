@@ -303,7 +303,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
             const shorts = JSON.parse(localStorage.getItem('shortsHistory') || '[]');
             const subs = JSON.parse(localStorage.getItem('subscribedChannels') || '[]');
-            const limit = 3; 
+            const limit = 30; 
 
             if (search.length > 0) {
                 await smartFetch(buildUrl('writealldeta', { userid: user.id, pw: user.password, searchID: search.slice(0, 10).map(safeStr).join(',') }));
