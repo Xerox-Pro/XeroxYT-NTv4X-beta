@@ -2,18 +2,13 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from 'vite';
-import { viteSingleFile } from 'vite-plugin-singlefile';
 
-// FIX: Get __dirname in an ES module environment to avoid using process.cwd(), which had typing issues.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      plugins: [viteSingleFile()],
-      // GAS Configuration: Use relative paths and inline assets
       base: './', 
-      
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
@@ -27,7 +22,15 @@ export default defineConfig(({ mode }) => {
         outDir: 'dist',
         assetsDir: 'assets',
         emptyOutDir: true,
-        // Increase chunk size warning since we are bundling everything into one file
+        rollupOptions: {
+          // fsevents等のNodeモジュールをブラウザコードから完全に除外するための設定
+          external: [],
+          output: {
+            entryFileNames: `assets/[name].js`,
+            chunkFileNames: `assets/[name].js`,
+            assetFileNames: `assets/[name].[ext]`
+          }
+        },
         chunkSizeWarningLimit: 100000000, 
       }
     };

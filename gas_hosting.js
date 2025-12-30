@@ -1,47 +1,86 @@
 
 /**
- * GASでReactアプリを配信するためのスクリプトです。
- * (Single File Build対応版)
+ * XeroxYT-NTv4X for Google Apps Script (CDN Loader)
  * 
  * 手順:
- * 1. ターミナルで `npm install` を実行し、新しい依存関係(vite-plugin-singlefile)をインストールします。
- * 2. `npm run build` を実行します。`dist` フォルダに `index.html` が生成されます。
- *    ※このHTMLファイルにJavaScriptとCSSが全て埋め込まれています。
- * 3. Google Apps Script プロジェクトを開きます。
- * 4. このファイルの内容を `Code.gs` にコピーします。
- * 5. GASエディタで「HTML」ファイルを追加し、名前を `index` とします。
- * 6. ローカルの `dist/index.html` の中身を**すべてコピー**し、GASの `index.html` に貼り付けます。
- * 7. 「デプロイ」 > 「新しいデプロイ」 > 「ウェブアプリ」を選択し、アクセス権限を「全員」にしてデプロイします。
+ * 1. GitHubにプロジェクトをプッシュします（distフォルダを含めること）。
+ * 2. 下記の `GITHUB_REPO` をあなたのリポジトリ名に書き換えます。
+ * 3. Google Apps Script の `Code.gs` にこのコードを貼り付けます。
  */
 
+const GITHUB_REPO = 'siawaseok3/wakame'; 
+const GITHUB_BRANCH = 'master'; 
+
 function doGet(e) {
-  // ルートアクセス時はアプリのHTMLを返す
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
+  const cdnBase = `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@${GITHUB_BRANCH}/dist`;
+  
+  const html = `
+    <!DOCTYPE html>
+    <html lang="ja" class="dark">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>XeroxYT-NTv4X</title>
+        <link rel="stylesheet" href="${cdnBase}/assets/index.css">
+        <link rel="icon" href="${cdnBase}/icon.svg">
+        <script>
+          const theme = localStorage.getItem('theme') || 'dark';
+          document.documentElement.className = theme;
+        </script>
+      </head>
+      <body>
+        <div id="root"></div>
+        <script type="module">
+          window.google = {
+            script: {
+              run: {
+                withSuccessHandler: function(callback) {
+                  this.success = callback;
+                  return this;
+                },
+                withFailureHandler: function(callback) {
+                  this.failure = callback;
+                  return this;
+                },
+                proxyApi: function(url) {
+                  const self = this;
+                  google.script.run_internal('proxyApi', [url], self.success, self.failure);
+                }
+              }
+            }
+          };
+
+          google.script.run_internal = function(name, args, success, failure) {
+            google.script.host.run[name].apply(google.script.host.run, args)
+              .withSuccessHandler(success)
+              .withFailureHandler(failure);
+          };
+        </script>
+        <script type="module" src="${cdnBase}/assets/index.js"></script>
+      </body>
+    </html>
+  `;
+
+  return HtmlService.createHtmlOutput(html)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setTitle('XeroxYT-NTv4X')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * クライアントサイド(React)からのAPIリクエストを中継する関数
- * CORSエラーを回避するためにGASサーバー側でfetchを実行します。
- */
 function proxyApi(url) {
   try {
     var response = UrlFetchApp.fetch(url, {
       method: 'get',
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
     });
-    
     return {
       status: response.getResponseCode(),
       body: response.getContentText()
     };
   } catch (e) {
-    return {
-      status: 500,
-      body: JSON.stringify({ error: e.toString() })
-    };
+    return { status: 500, body: JSON.stringify({ error: e.toString() }) };
   }
 }

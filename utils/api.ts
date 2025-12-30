@@ -21,7 +21,6 @@ const switchApiMirror = () => {
     const currentIndex = API_MIRRORS.indexOf(currentApiBase);
     const nextIndex = (currentIndex + 1) % API_MIRRORS.length;
     currentApiBase = API_MIRRORS[nextIndex];
-    console.warn(`API Mirror switched to: ${currentApiBase}`);
 };
 
 export const getApiBaseUrl = () => currentApiBase;
@@ -45,7 +44,6 @@ const cache = {
             const item: CacheItem = JSON.parse(itemStr);
             return item;
         } catch (error) {
-            console.error(`Cache read error for key "${key}":`, error);
             return null;
         }
     },
@@ -55,20 +53,8 @@ const cache = {
             const item: CacheItem = { data: value, expiry: new Date().getTime() + ttl };
             localStorage.setItem(key, JSON.stringify(item));
         } catch (error) {
-            console.error(`Cache write error for key "${key}":`, error);
             if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-                console.warn("LocalStorage quota exceeded. Clearing old cache keys...");
-                try {
-                    const keysToRemove: string[] = [];
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const k = localStorage.key(i);
-                        if (k && (k.startsWith('video-details-') || k.startsWith('stream-data-'))) {
-                            keysToRemove.push(k);
-                        }
-                    }
-                    keysToRemove.forEach(k => localStorage.removeItem(k));
-                    localStorage.setItem(key, JSON.stringify({ data: value, expiry: new Date().getTime() + ttl }));
-                } catch (e) {}
+                localStorage.clear();
             }
         }
     },
@@ -102,10 +88,8 @@ export const formatJapaneseNumber = (raw: number | string): string => {
   if (!raw && raw !== 0) return '0';
   const str = String(raw).trim();
   
-  // すでに単位がついている場合はそのまま整形
   if (str.match(/[万億]/)) return str.replace(/[^0-9.万億]/g, '').replace(/\.0$/, '');
   
-  // カンマ等を除去して数値化
   const cleanStr = str.replace(/[^0-9.]/g, '');
   if (!cleanStr) return str;
   const num = parseFloat(cleanStr);
@@ -159,15 +143,6 @@ export const parseDuration = (iso: string, text: string): number => {
     return 0;
 }
 
-export const linkify = (text: string): string => {
-    if (!text) return '';
-    const urlRegex = /((?:https?:\/\/|www\.)[^\s<]+)/g;
-    return text.replace(urlRegex, (url) => {
-        const href = url.startsWith('www.') ? `http://${url}` : url;
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="text-yt-blue hover:underline break-all">${url}</a>`;
-    });
-};
-
 const smartFetch = async (url: string, options: RequestInit = {}): Promise<any> => {
     // @ts-ignore
     if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -182,7 +157,7 @@ const smartFetch = async (url: string, options: RequestInit = {}): Promise<any> 
                         } catch (e) {
                              resolve({ ok: true, json: async () => ({}), text: async () => res.body });
                         }
-                    } else reject(new Error(`GAS Fetch Failed: ${res.status} ${res.body}`));
+                    } else reject(new Error(`GAS Fetch Failed: ${res.status}`));
                 })
                 .withFailureHandler((err: any) => reject(err))
                 .proxyApi(url);
@@ -196,7 +171,7 @@ const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = A
         const response = await smartFetch(url, options);
         const text = await response.text();
         let data;
-        try { data = text ? JSON.parse(text) : {}; } catch (e) { throw new Error(`Non-JSON: ${text.slice(0, 50)}...`); }
+        try { data = text ? JSON.parse(text) : {}; } catch (e) { throw new Error('Non-JSON response'); }
         if (!response.ok) throw new Error(data.error || `Status ${response.status}`);
         return data;
     } catch (err: any) {
@@ -208,73 +183,48 @@ const apiFetch = async (endpoint: string, options: RequestInit = {}, retries = A
     }
 };
 
-let playerConfigParams: string | null = null;
 export async function getPlayerConfig(): Promise<string> {
-    if (playerConfigParams) return playerConfigParams;
     return fetchWithCache('player-config', async () => {
         const response = await fetch('https://raw.githubusercontent.com/siawaseok3/wakame/master/video_config.json');
         const config = await response.json();
-        playerConfigParams = (config.params || '').replace(/&amp;/g, '&');
-        return playerConfigParams!;
+        return (config.params || '').replace(/&amp;/g, '&');
     }, 24 * 60 * 60 * 1000); 
 }
 
-// watch_next_feedのLockupView形式をVideo形式に変換
+// LockupView形式をVideo形式に変換
 export const mapLockupViewToVideo = (item: any): Video | null => {
     if (!item || item.type !== 'LockupView') return null;
-    const contentId = item.content_id;
-    if (!contentId) return null;
+    const videoId = item.content_id;
+    if (!videoId) return null;
 
     const metadata = item.metadata;
     const title = metadata?.title?.text || '無題';
-    
-    // サムネイル取得
     const images = item.content_image?.image;
-    let thumbnailUrl = `https://i.ytimg.com/vi/${contentId}/hqdefault.jpg`;
-    if (Array.isArray(images) && images.length > 0) {
-        thumbnailUrl = images[0].url;
-    }
+    let thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    if (Array.isArray(images) && images.length > 0) thumbnailUrl = images[0].url;
 
-    // 再生時間
     const overlays = item.content_image?.overlays || [];
     const timeBadge = overlays.find((o: any) => o.type === 'ThumbnailOverlayBadgeView')?.badges?.[0];
     const duration = timeBadge?.text || '';
 
-    // チャンネル情報
     const metaRows = metadata?.metadata?.metadata_rows || [];
     const authorPart = metaRows[0]?.metadata_parts?.[0]?.text;
     const channelName = authorPart?.text || '不明';
     
-    // 視聴回数・投稿日
     const statsPart = metaRows[1]?.metadata_parts || [];
     const viewsRaw = statsPart[0]?.text?.text || '';
     const uploadedAt = statsPart[statsPart.length - 1]?.text?.text || '';
 
     return {
-        id: contentId,
-        thumbnailUrl,
-        duration,
-        isoDuration: '',
-        title,
-        channelName,
-        channelId: '', // IDはここからは取得しづらいため空
-        channelAvatarUrl: '',
-        views: formatJapaneseNumber(viewsRaw),
-        uploadedAt,
-        isLive: false
+        id: videoId, thumbnailUrl, duration, isoDuration: '', title, channelName,
+        channelId: metadata?.image?.renderer_context?.command_context?.on_tap?.payload?.browseId || '',
+        channelAvatarUrl: metadata?.image?.avatar?.image?.[0]?.url || '',
+        views: formatJapaneseNumber(viewsRaw), uploadedAt, isLive: false
     };
 };
 
 export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
     if (!item) return null;
-    if (item.type === 'ShortsLockupView' || item.on_tap_endpoint?.payload?.videoId) {
-         const videoId = item.on_tap_endpoint?.payload?.videoId;
-         if (!videoId) return null;
-         const title = item.overlay_metadata?.primary_text?.text || item.accessibility_text?.split(',')[0] || 'Shorts';
-         let rawViews = item.overlay_metadata?.secondary_text?.text || '';
-         let thumb = item.on_tap_endpoint?.payload?.thumbnail?.thumbnails?.[0]?.url;
-         return { id: videoId, thumbnailUrl: thumb || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, duration: '', isoDuration: 'PT1M', title, channelName: '', channelId: '', channelAvatarUrl: '', views: formatJapaneseNumber(rawViews), uploadedAt: '', isLive: false };
-    }
     const videoId = item.id || item.videoId || item.video_id;
     if (!videoId) return null;
     const title = item.title?.text ?? item.title?.simpleText ?? '無題';
@@ -282,66 +232,79 @@ export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
     let thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`; 
     if (Array.isArray(thumbs) && thumbs.length > 0) thumbnailUrl = thumbs[0].url.split('?')[0];
     const duration = item.duration?.text ?? item.length?.simpleText ?? '';
-    
-    let rawViews = item.view_count?.text ?? item.short_view_count?.text ?? item.views?.text ?? '';
-    let views = formatJapaneseNumber(rawViews);
+    let views = formatJapaneseNumber(item.view_count?.text ?? item.short_view_count?.text ?? item.views?.text ?? '');
     if (views && !views.includes('視聴')) views += '回視聴';
-
     const author = item.author || item.channel;
-    return { id: videoId, thumbnailUrl, duration, isoDuration: `PT${item.duration?.seconds ?? 0}S`, title, channelName: author?.name ?? '不明', channelId: author?.id ?? '', channelAvatarUrl: author?.thumbnails?.[0]?.url ?? '', views, uploadedAt: formatJapaneseDate(item.published?.text ?? ''), descriptionSnippet: item.description_snippet?.text ?? '', isLive: !!item.badges?.some((b:any) => b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW') };
+    return { id: videoId, thumbnailUrl, duration, isoDuration: `PT${item.duration?.seconds ?? 0}S`, title, channelName: author?.name ?? '不明', channelId: author?.id ?? '', channelAvatarUrl: author?.thumbnails?.[0]?.url ?? '', views, uploadedAt: formatJapaneseDate(item.published?.text ?? ''), isLive: !!item.badges?.some((b:any) => b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW') };
 };
 
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
-    return fetchWithCache(`stream-data-direct-v3-${videoId}`, async () => {
+    return fetchWithCache(`stream-data-v4-${videoId}`, async () => {
         const url = `${currentApiBase}/stream?id=${videoId}`;
         const response = await smartFetch(url);
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Stream fetch failed');
+        if (!response.ok) throw new Error(data.error || 'Stream failed');
         
-        const result: StreamData = { streamingUrl: null, streamType: 'mp4', combinedFormats: [], audioOnlyFormat: null, separate1080p: null };
+        const result: StreamData = { streamingUrl: data.streamingUrl || null, streamType: 'mp4', combinedFormats: [], audioOnlyFormat: null, separate1080p: null };
         const formats = Array.isArray(data.formats) ? data.formats : [];
-        
-        const format360 = formats.find((f: any) => f.quality === '360p');
-        if (format360 && format360.url) {
-            result.streamingUrl = format360.url; 
-        } else if (data.streamingUrl) {
-            result.streamingUrl = data.streamingUrl;
-        } else if (formats.length > 0) {
-            result.streamingUrl = formats[0].url;
-        }
-
-        result.combinedFormats = formats.map((f: any) => ({
-            quality: f.quality || 'Unknown',
-            container: f.container || 'mp4',
-            url: f.url,
-            isVideoOnly: false
-        }));
-
-        if (data.audioUrl) {
-            result.audioOnlyFormat = { quality: 'best', container: 'm4a', url: data.audioUrl };
-        }
+        result.combinedFormats = formats.map((f: any) => ({ quality: f.quality, container: f.container, url: f.url, isVideoOnly: false }));
+        if (data.audioUrl) result.audioOnlyFormat = { quality: 'best', container: 'm4a', url: data.audioUrl };
         return result;
     }, 60 * 60 * 1000); 
 }
 
-export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<ChannelDetails>): Video => ({
-    id: homeVideo.videoId,
-    title: homeVideo.title,
-    thumbnailUrl: homeVideo.thumbnail || `https://i.ytimg.com/vi/${homeVideo.videoId}/mqdefault.jpg`,
-    duration: homeVideo.duration || '',
-    isoDuration: '',
-    channelName: homeVideo.author || channelData?.name || '',
-    channelId: channelData?.id || '',
-    channelAvatarUrl: homeVideo.icon || channelData?.avatarUrl || '',
-    views: formatJapaneseNumber(homeVideo.viewCount || '') + '回視聴',
-    uploadedAt: homeVideo.published || '',
-    descriptionSnippet: homeVideo.description || '',
-});
+export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
+    return fetchWithCache(`video-details-v7-${videoId}`, async () => {
+        const data = await apiFetch(`video?id=${videoId}`);
+        if (!data) throw new Error('動画の読み込みに失敗しました。');
+        
+        const owner = data.secondary_info?.owner;
+        const collaborators: Channel[] = [];
+        const collabDialog = owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel || 
+                             data.secondary_info?.owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
+        const collabItems = collabDialog?.customContent?.listViewModel?.listItems;
+        
+        if (Array.isArray(collabItems)) {
+            collabItems.forEach((item: any) => {
+                const vm = item.listItemViewModel;
+                if (!vm) return;
+                const cId = vm.title?.commandRuns?.[0]?.onTap?.innertubeCommand?.browseEndpoint?.browseId || 
+                            vm.title?.endpoint?.payload?.browseId;
+                if (cId) {
+                    collaborators.push({
+                        id: cId, name: vm.title.content || vm.title.text || 'Unknown',
+                        avatarUrl: '', subscriberCount: formatJapaneseNumber(vm.subtitle?.content || vm.subtitle?.text || '')
+                    });
+                }
+            });
+        }
 
-export async function getChannelHome(channelId: string): Promise<ChannelHomeData> {
-    return fetchWithCache(`channel-home-${channelId}`, async () => {
-        const response = await smartFetch(`${SIAWASE_API_BASE}/channel/${channelId}`);
-        return await response.json();
+        const relatedVideos: Video[] = [];
+        const feed = data.watch_next_feed || [];
+        if (Array.isArray(feed)) {
+            feed.forEach((item: any) => {
+                const v = mapLockupViewToVideo(item);
+                if (v) relatedVideos.push(v);
+            });
+        }
+
+        return {
+            id: videoId, title: data.primary_info?.title?.text || 'No Title', thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            duration: '', isoDuration: '', channelName: collaborators.length > 0 ? collaborators[0].name : (owner?.author?.name || 'Unknown'), 
+            channelId: collaborators.length > 0 ? collaborators[0].id : (owner?.author?.id || ''),
+            channelAvatarUrl: owner?.author?.thumbnails?.[0]?.url || '', 
+            views: formatJapaneseNumber(data.primary_info?.view_count?.view_count?.text || ''),
+            uploadedAt: data.primary_info?.relative_date?.text || '', description: data.secondary_info?.description?.text || '',
+            likes: formatJapaneseNumber(data.basic_info?.like_count || ''), dislikes: '0', 
+            channel: { 
+                id: collaborators.length > 0 ? collaborators[0].id : (owner?.author?.id || ''), 
+                name: collaborators.length > 0 ? collaborators[0].name : (owner?.author?.name || ''), 
+                avatarUrl: owner?.author?.thumbnails?.[0]?.url || '', 
+                subscriberCount: formatJapaneseNumber(owner?.subscriber_count?.text || collaborators[0]?.subscriberCount || '') 
+            },
+            collaborators: collaborators.length > 0 ? collaborators : undefined,
+            relatedVideos, isLive: false
+        };
     });
 }
 
@@ -364,93 +327,26 @@ export async function getRecommendedVideos(): Promise<{ videos: Video[] }> {
 }
 
 export async function searchVideos(query: string, pageToken = '1', channelId?: string, sortBy?: string): Promise<SearchResults> {
-    const cacheKey = `search-${query}-${pageToken}-${channelId || 'all'}-${sortBy || 'relevance'}`;
-    return fetchWithCache(cacheKey, async () => {
-        const params = new URLSearchParams();
-        params.set('q', query);
-        params.set('page', pageToken);
-        if (sortBy) params.set('sort_by', sortBy);
-        const data = await apiFetch(`search?${params.toString()}`);
-        const videos: Video[] = Array.isArray(data.videos) ? data.videos.map(mapYoutubeiVideoToVideo).filter((v): v is Video => v !== null) : [];
-        const shorts: Video[] = Array.isArray(data.shorts) ? data.shorts.map(mapYoutubeiVideoToVideo).filter((v): v is Video => v !== null) : [];
-        const channels: Channel[] = Array.isArray(data.channels) ? data.channels.map(c => ({ id: c.id, name: c.name, avatarUrl: c.thumbnails?.[0]?.url || '', subscriberCount: formatJapaneseNumber(c.subscriber_count?.text || '') })).filter(c => !!c.id) : [];
-        const playlists: ApiPlaylist[] = Array.isArray(data.playlists) ? data.playlists.map(p => ({ id: p.id, title: p.title, thumbnailUrl: p.thumbnails?.[0]?.url, videoCount: parseInt(p.video_count?.text?.replace(/[^0-9]/g, '') || '0'), author: p.author?.name, authorId: p.author?.id })).filter(p => !!p.id) : [];
-        return { videos, shorts, channels, playlists, nextPageToken: data.nextPageToken };
-    });
-}
-
-export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
-    return fetchWithCache(`video-details-v5-${videoId}`, async () => {
-        const data = await apiFetch(`video?id=${videoId}`);
-        if (!data) throw new Error('動画の読み込みに失敗しました。');
-        
-        const owner = data.secondary_info?.owner;
-        const collaborators: Channel[] = [];
-
-        // コラボレーター情報の抽出
-        const collabDialog = owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
-        const collabItems = collabDialog?.customContent?.listViewModel?.listItems;
-        
-        if (Array.isArray(collabItems)) {
-            collabItems.forEach((item: any) => {
-                const vm = item.listItemViewModel;
-                if (!vm) return;
-                const channelId = vm.title?.commandRuns?.[0]?.onTap?.innertubeCommand?.browseEndpoint?.browseId;
-                if (channelId) {
-                    collaborators.push({
-                        id: channelId,
-                        name: vm.title.content || 'Unknown',
-                        avatarUrl: '', // アバターURLがこのリストにない場合が多い
-                        subscriberCount: formatJapaneseNumber(vm.subtitle?.content || '')
-                    });
-                }
-            });
-        }
-
-        // 関連動画の抽出 (watch_next_feedから)
-        const relatedVideos: Video[] = [];
-        const feed = data.watch_next_feed || [];
-        feed.forEach((item: any) => {
-            const v = mapLockupViewToVideo(item);
-            if (v) relatedVideos.push(v);
-        });
-
-        const details: VideoDetails = {
-            id: videoId, 
-            title: data.primary_info?.title?.text || 'No Title', 
-            thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            duration: '', 
-            isoDuration: '', 
-            channelName: collaborators.length > 0 ? collaborators[0].name : (owner?.author?.name || 'Unknown'), 
-            channelId: collaborators.length > 0 ? collaborators[0].id : (owner?.author?.id || ''),
-            channelAvatarUrl: owner?.author?.thumbnails?.[0]?.url || '', 
-            views: formatJapaneseNumber(data.primary_info?.view_count?.view_count?.text || ''),
-            uploadedAt: data.primary_info?.relative_date?.text || '', 
-            description: data.secondary_info?.description?.text || '',
-            likes: formatJapaneseNumber(data.basic_info?.like_count || ''), 
-            dislikes: '0', 
-            channel: { 
-                id: collaborators.length > 0 ? collaborators[0].id : (owner?.author?.id || ''), 
-                name: collaborators.length > 0 ? collaborators[0].name : (owner?.author?.name || ''), 
-                avatarUrl: owner?.author?.thumbnails?.[0]?.url || '', 
-                subscriberCount: formatJapaneseNumber(owner?.subscriber_count?.text || collaborators[0]?.subscriberCount || '') 
-            },
-            collaborators: collaborators.length > 0 ? collaborators : undefined,
-            relatedVideos: relatedVideos, 
-            isLive: false
-        };
-        return details;
-    });
+    const params = new URLSearchParams();
+    params.set('q', query);
+    params.set('page', pageToken);
+    if (sortBy) params.set('sort_by', sortBy);
+    const data = await apiFetch(`search?${params.toString()}`);
+    return {
+        videos: Array.isArray(data.videos) ? data.videos.map(mapYoutubeiVideoToVideo).filter((v): v is Video => v !== null) : [],
+        shorts: Array.isArray(data.shorts) ? data.shorts.map(mapYoutubeiVideoToVideo).filter((v): v is Video => v !== null) : [],
+        channels: Array.isArray(data.channels) ? data.channels.map(c => ({ id: c.id, name: c.name, avatarUrl: c.thumbnails?.[0]?.url || '', subscriberCount: formatJapaneseNumber(c.subscriber_count?.text || '') })).filter(c => !!c.id) : [],
+        playlists: Array.isArray(data.playlists) ? data.playlists.map(p => ({ id: p.id, title: p.title, thumbnailUrl: p.thumbnails?.[0]?.url, videoCount: parseInt(p.video_count?.text?.replace(/[^0-9]/g, '') || '0'), author: p.author?.name, authorId: p.author?.id })).filter(p => !!p.id) : [],
+        nextPageToken: data.nextPageToken
+    };
 }
 
 export async function getComments(videoId: string, sortBy: 'top' | 'newest' = 'top', continuation?: string): Promise<CommentResponse> {
-    return fetchWithCache(`comments-${videoId}-${sortBy}-${continuation || 'init'}`, async () => {
-        const params = new URLSearchParams({ id: videoId });
-        if (sortBy === 'newest') params.set('sort_by', 'newest');
-        if (continuation) params.set('continuation', continuation);
-        const data = await apiFetch(`comments?${params.toString()}`);
-        return { comments: (data.comments as Comment[]) ?? [], continuation: data.continuation };
-    }, 60 * 1000);
+    const params = new URLSearchParams({ id: videoId });
+    if (sortBy === 'newest') params.set('sort_by', 'newest');
+    if (continuation) params.set('continuation', continuation);
+    const data = await apiFetch(`comments?${params.toString()}`);
+    return { comments: (data.comments as Comment[]) ?? [], continuation: data.continuation };
 }
 
 export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
@@ -460,40 +356,31 @@ export async function getVideosByIds(videoIds: string[]): Promise<Video[]> {
 }
 
 export async function getChannelDetails(channelId: string): Promise<ChannelDetails> {
-    return fetchWithCache(`channel-details-${channelId}`, async () => {
-        const data = await apiFetch(`channel?id=${channelId}`);
-        const channelMeta = data.channel;
-        if (!channelMeta) throw new Error(`Channel not found.`);
-        return { 
-            id: channelId, 
-            name: channelMeta.name ?? 'No Name', 
-            avatarUrl: typeof channelMeta.avatar === 'string' ? channelMeta.avatar : channelMeta.avatar?.[0]?.url || channelMeta.avatar?.url, 
-            subscriberCount: formatJapaneseNumber(channelMeta.subscriberCount ?? ''), 
-            bannerUrl: channelMeta.banner?.url || channelMeta.banner, 
-            description: channelMeta.description ?? '', 
-            videoCount: parseInt(channelMeta.videoCount?.replace(/,/g, '') ?? '0'), 
-            handle: channelMeta.name 
-        };
-    });
+    const data = await apiFetch(`channel?id=${channelId}`);
+    const channelMeta = data.channel;
+    if (!channelMeta) throw new Error(`Channel not found.`);
+    return { 
+        id: channelId, name: channelMeta.name ?? 'No Name', 
+        avatarUrl: typeof channelMeta.avatar === 'string' ? channelMeta.avatar : channelMeta.avatar?.[0]?.url || channelMeta.avatar?.url, 
+        subscriberCount: formatJapaneseNumber(channelMeta.subscriberCount ?? ''), 
+        bannerUrl: channelMeta.banner?.url || channelMeta.banner, description: channelMeta.description ?? '', 
+        videoCount: parseInt(channelMeta.videoCount?.replace(/,/g, '') ?? '0'), handle: channelMeta.name 
+    };
 }
 
 export async function getChannelVideos(channelId: string, pageToken = '1', sort: 'latest' | 'popular' | 'oldest' = 'latest'): Promise<{ videos: Video[], nextPageToken?: string }> {
-    return fetchWithCache(`channel-videos-${channelId}-${pageToken}-${sort}`, async () => {
-        let url = `channel?id=${channelId}&page=${pageToken}`;
-        if (sort !== 'latest') url += `&sort=${sort}`;
-        const data = await apiFetch(url);
-        const videos = data.videos?.map(mapYoutubeiVideoToVideo).filter((v:any): v is Video => v !== null) ?? [];
-        return { videos, nextPageToken: videos.length > 0 ? String(parseInt(pageToken) + 1) : undefined };
-    }, 0);
+    let url = `channel?id=${channelId}&page=${pageToken}`;
+    if (sort !== 'latest') url += `&sort=${sort}`;
+    const data = await apiFetch(url);
+    const videos = data.videos?.map(mapYoutubeiVideoToVideo).filter((v:any): v is Video => v !== null) ?? [];
+    return { videos, nextPageToken: videos.length > 0 ? String(parseInt(pageToken) + 1) : undefined };
 }
 
 export async function getChannelShorts(channelId: string, sort: 'latest' | 'popular' = 'latest', pageToken = '1'): Promise<{ videos: Video[], nextPageToken?: string }> {
-    return fetchWithCache(`channel-shorts-${channelId}-${sort}-${pageToken}`, async () => {
-        let url = `channel-shorts?id=${channelId}&sort=${sort}&page=${pageToken}`;
-        const data = await apiFetch(url);
-        const videos = (Array.isArray(data) ? data : (data.videos || [])).map(mapYoutubeiVideoToVideo).filter((v:any): v is Video => v !== null) ?? [];
-        return { videos, nextPageToken: videos.length > 0 ? String(parseInt(pageToken) + 1) : undefined };
-    }, 5 * 60 * 1000); 
+    let url = `channel-shorts?id=${channelId}&sort=${sort}&page=${pageToken}`;
+    const data = await apiFetch(url);
+    const videos = (Array.isArray(data) ? data : (data.videos || [])).map(mapYoutubeiVideoToVideo).filter((v:any): v is Video => v !== null) ?? [];
+    return { videos, nextPageToken: videos.length > 0 ? String(parseInt(pageToken) + 1) : undefined };
 }
 
 export async function getChannelLive(channelId: string): Promise<{ videos: Video[] }> {
@@ -515,3 +402,22 @@ export async function getPlaylistDetails(playlistId: string): Promise<PlaylistDe
     const data = await apiFetch(`playlist?id=${playlistId}`);
     return { title: data.info?.title, author: data.info?.author?.name, authorId: data.info?.author?.id, description: data.info?.description, videos: (data.videos || []).map(mapYoutubeiVideoToVideo).filter((v:any): v is Video => v !== null) };
 }
+
+export async function getChannelHome(channelId: string): Promise<ChannelHomeData> {
+    const response = await smartFetch(`${SIAWASE_API_BASE}/channel/${channelId}`);
+    return await response.json();
+}
+
+export const mapHomeVideoToVideo = (homeVideo: HomeVideo, channelData?: Partial<ChannelDetails>): Video => ({
+    id: homeVideo.videoId,
+    title: homeVideo.title,
+    thumbnailUrl: homeVideo.thumbnail || `https://i.ytimg.com/vi/${homeVideo.videoId}/mqdefault.jpg`,
+    duration: homeVideo.duration || '',
+    isoDuration: '',
+    channelName: homeVideo.author || channelData?.name || '',
+    channelId: channelData?.id || '',
+    channelAvatarUrl: homeVideo.icon || channelData?.avatarUrl || '',
+    views: formatJapaneseNumber(homeVideo.viewCount || '') + '回視聴',
+    uploadedAt: homeVideo.published || '',
+    descriptionSnippet: homeVideo.description || '',
+});
