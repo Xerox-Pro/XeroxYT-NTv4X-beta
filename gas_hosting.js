@@ -1,19 +1,12 @@
-
 /**
  * XeroxYT-NTv4X for Google Apps Script (CDN Loader)
  * 
- * 手順:
- * 1. GitHubにプロジェクトをプッシュします（distフォルダを含めること）。
- * 2. 下記の `GITHUB_REPO` をあなたのリポジトリ名に書き換えます。
- * 3. Google Apps Script の `Code.gs` にこのコードを貼り付けます。
+ * 配信元リポジトリ: Xerox-Pro/XeroxYT-NTv4X-beta (mainブランチ)
  */
 
-const GITHUB_REPO = 'siawaseok3/wakame'; 
-const GITHUB_BRANCH = 'master'; 
+const CDN_BASE = 'https://cdn.jsdelivr.net/gh/Xerox-Pro/XeroxYT-NTv4X-beta@main/dist/assets';
 
 function doGet(e) {
-  const cdnBase = `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@${GITHUB_BRANCH}/dist`;
-  
   const html = `
     <!DOCTYPE html>
     <html lang="ja" class="dark">
@@ -21,8 +14,9 @@ function doGet(e) {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>XeroxYT-NTv4X</title>
-        <link rel="stylesheet" href="${cdnBase}/assets/index.css">
-        <link rel="icon" href="${cdnBase}/icon.svg">
+        <!-- 固定名で出力されたCSSを読み込み -->
+        <link rel="stylesheet" href="${CDN_BASE}/index.css">
+        <link rel="icon" href="${CDN_BASE}/../icon.svg">
         <script>
           const theme = localStorage.getItem('theme') || 'dark';
           document.documentElement.className = theme;
@@ -31,6 +25,7 @@ function doGet(e) {
       <body>
         <div id="root"></div>
         <script type="module">
+          // GASの環境で動作させるためのAPIブリッジ
           window.google = {
             script: {
               run: {
@@ -56,7 +51,8 @@ function doGet(e) {
               .withFailureHandler(failure);
           };
         </script>
-        <script type="module" src="${cdnBase}/assets/index.js"></script>
+        <!-- 固定名で出力されたJSを読み込み -->
+        <script type="module" src="${CDN_BASE}/index.js"></script>
       </body>
     </html>
   `;

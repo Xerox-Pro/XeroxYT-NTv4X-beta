@@ -1,4 +1,3 @@
-
 import type { Video, VideoDetails, Channel, ChannelDetails, ApiPlaylist, Comment, PlaylistDetails, SearchResults, HomeVideo, HomePlaylist, ChannelHomeData, CommunityPost, CommentResponse, StreamData } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
@@ -191,7 +190,6 @@ export async function getPlayerConfig(): Promise<string> {
     }, 24 * 60 * 60 * 1000); 
 }
 
-// LockupView形式をVideo形式に変換
 export const mapLockupViewToVideo = (item: any): Video | null => {
     if (!item || item.type !== 'LockupView') return null;
     const videoId = item.content_id;
@@ -239,7 +237,7 @@ export const mapYoutubeiVideoToVideo = (item: any): Video | null => {
 };
 
 export async function getRawStreamData(videoId: string): Promise<StreamData> {
-    return fetchWithCache(`stream-data-v4-${videoId}`, async () => {
+    return fetchWithCache(`stream-data-v5-${videoId}`, async () => {
         const url = `${currentApiBase}/stream?id=${videoId}`;
         const response = await smartFetch(url);
         const data = await response.json();
@@ -254,14 +252,14 @@ export async function getRawStreamData(videoId: string): Promise<StreamData> {
 }
 
 export async function getVideoDetails(videoId: string): Promise<VideoDetails> {
-    return fetchWithCache(`video-details-v7-${videoId}`, async () => {
+    return fetchWithCache(`video-details-v8-${videoId}`, async () => {
         const data = await apiFetch(`video?id=${videoId}`);
         if (!data) throw new Error('動画の読み込みに失敗しました。');
         
         const owner = data.secondary_info?.owner;
         const collaborators: Channel[] = [];
-        const collabDialog = owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel || 
-                             data.secondary_info?.owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
+        
+        const collabDialog = data.secondary_info?.owner?.author?.endpoint?.payload?.panelLoadingStrategy?.inlineContent?.dialogViewModel;
         const collabItems = collabDialog?.customContent?.listViewModel?.listItems;
         
         if (Array.isArray(collabItems)) {

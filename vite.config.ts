@@ -1,4 +1,3 @@
-
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from 'vite';
@@ -23,10 +22,11 @@ export default defineConfig(({ mode }) => {
         assetsDir: 'assets',
         emptyOutDir: true,
         rollupOptions: {
-          // fsevents等のNodeモジュールをブラウザコードから完全に除外するための設定
-          external: [],
+          // ブラウザ bundle に Node.js 専用のモジュールが混入するのを防ぐ
+          external: ['path', 'url', 'fs', 'events', 'http', 'https', 'stream', 'os', 'crypto', 'zlib', 'util'],
           output: {
-            entryFileNames: `assets/[name].js`,
+            // GAS/CDN運用のためにハッシュ値を付けない固定名にする
+            entryFileNames: `assets/index.js`,
             chunkFileNames: `assets/[name].js`,
             assetFileNames: `assets/[name].[ext]`
           }
